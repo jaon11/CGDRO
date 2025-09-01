@@ -33,11 +33,10 @@ library(MASS)
 
 # ---- Probability learner (multi-class) using nnet::multinom ----
 .compute_proba_once <- function(X, y, X0, learner = "xgb", split = FALSE,
-                                proba_params = NULL, seed = NULL) {
-  if (!is.null(seed)) set.seed(seed)
+                                proba_params = NULL) {
   y <- as.factor(y)  # required by multinom
   num_class <- length(levels(y))
-  
+
   # train/predict wrappers
   if (learner == "xgb") {
     # pure multinomial logistic regression (no hidden layer)
@@ -54,19 +53,19 @@ library(MASS)
   } else {
     stop("Unsupported prob_learner: use learner = 'nnet' for multi-class.")
   }
-  
+
   if (split) {
     n <- nrow(X)
     indA <- sample(n, floor(n/2))
     indB <- setdiff(seq_len(n), indA)
-    
+
     mA <- train_model(X[indA, ], y[indA])
     mB <- train_model(X[indB, ], y[indB])
-    
+
     predAB <- predict_prob(mA, X[indB, ])  # on B using A
     predBA <- predict_prob(mB, X[indA, ])  # on A using B
     predX0 <- (predict_prob(mA, X0) + predict_prob(mB, X0)) / 2
-    
+
     predX <- matrix(0, nrow = n, ncol = num_class)
     predX[indA, ] <- predBA
     predX[indB, ] <- predAB
@@ -75,23 +74,22 @@ library(MASS)
     predX  <- predict_prob(m, X)
     predX0 <- predict_prob(m, X0)
   }
-  
+
   # ensure matrix (n, C)
   predX  <- as.matrix(predX)
   predX0 <- as.matrix(predX0)
-  
+
   # Clip probs to avoid extremes
   predX  <- pmin(pmax(predX, 1e-6), 1 - 1e-6)
   predX0 <- pmin(pmax(predX0, 1e-6), 1 - 1e-6)
-  
+
   list(predX = predX, predX0 = predX0)
 }
 
 # ---- Density-ratio learner (binary) via glmnet (binomial) ----
 .compute_density_once <- function(X, X0, learner = "linear", split = FALSE,
-                                  density_params = NULL, seed = NULL) {
-  if (!is.null(seed)) set.seed(seed)
-  
+                                  density_params = NULL) {
+
   if (learner == "linear") {
     train_glmnet <- function(X, y) {
       # y should be numeric 0/1
@@ -101,20 +99,20 @@ library(MASS)
   } else if (learner == "xgb") {
     stop("If you need xgboost density learner, enable xgboost and re-add it.")
   } else stop("Unknown density_learner: ", learner)
-  
+
   if (split) {
     n <- nrow(X)
     indA <- sample(n, floor(n/2))
     indB <- setdiff(seq_len(n), indA)
-    
+
     XA <- rbind(X[indA, ], X0); yA <- c(rep(0, length(indA)), rep(1, nrow(X0)))
     XB <- rbind(X[indB, ], X0); yB <- c(rep(0, length(indB)), rep(1, nrow(X0)))
-    
+
     mA <- train_glmnet(XA, yA); mB <- train_glmnet(XB, yB)
-    
+
     pAB <- predict_prob(mA, X[indB, ])
     pBA <- predict_prob(mB, X[indA, ])
-    
+
     omegaB <- (pAB/(1 - pAB)) * (length(indA)/nrow(X0))
     omegaA <- (pBA/(1 - pBA)) * (length(indB)/nrow(X0))
     omegaX <- numeric(n); omegaX[indA] <- omegaA; omegaX[indB] <- omegaB
@@ -124,13 +122,13 @@ library(MASS)
     p <- predict_prob(m, X)
     omegaX <- (p/(1 - p)) * (nrow(X)/nrow(X0))
   }
-  
+
   pmin(pmax(omegaX, 1e-3), 1e3)
 }
 
 # ---- Fit probas/densities for all sources ----
 .fit_proba_density <- function(X_list, y_list, X0, prob_learner, density_learner,
-                               split, proba_params_list, density_params_list, seed = NULL) {
+                               split, proba_params_list, density_params_list) {
   L <- length(X_list)
   probaX_list  <- vector("list", L)
   probaX0_list <- vector("list", L)
@@ -138,14 +136,14 @@ library(MASS)
   for (l in seq_len(L)) {
     pr <- .compute_proba_once(X_list[[l]], y_list[[l]], X0,
                               learner = prob_learner, split = split,
-                              proba_params = proba_params_list[[l]], seed = seed)
+                              proba_params = proba_params_list[[l]])
     probaX_list[[l]]  <- pr$predX         # (n_l, C)
     probaX0_list[[l]] <- pr$predX0        # (n0, C)
   }
   for (l in seq_len(L)) {
     omegaX_list[[l]] <- .compute_density_once(X_list[[l]], X0,
                                               learner = density_learner, split = split,
-                                              density_params = density_params_list[[l]], seed = seed)
+                                              density_params = density_params_list[[l]])
   }
   list(probaX_list = probaX_list, probaX0_list = probaX0_list, omegaX_list = omegaX_list)
 }
@@ -203,12 +201,12 @@ library(MASS)
 }
 
 
-# ---- Prepara for Inference ---- 
+# ---- Prepara for Inference ----
 .prepare_inference <- function(fit, diag = TRUE) {
   n0 <- nrow(fit$X0); d <- fit$d; K <- fit$K
   theta_mat <- matrix(fit$theta, nrow = d, byrow = FALSE)
   proba_mat <- .softmax_reduced(fit$X0 %*% theta_mat)
-  
+
   # Hessian
   H <- matrix(0, d*K, d*K)
   for (j in seq_len(K)) {
@@ -221,13 +219,13 @@ library(MASS)
     }
   }
   H_inv <- if (diag) diag(1/diag(H)) else solve(H)
-  
+
   gradS <- as.numeric(t(fit$X0) %*% proba_mat / n0)
-  
+
   diag_cov <- function(psi) diag(colMeans(psi^2) - colMeans(psi)^2)
   psiS <- t(vapply(seq_len(n0), function(i) kronecker(proba_mat[i, ], fit$X0[i, ]), numeric(d*K)))
   gradS_cov <- (if (diag) diag_cov(psiS) else stats::cov(psiS)) / n0
-  
+
   mu_cov_list <- list(); mu_gradS_cov_list <- list()
   for (l in seq_len(fit$L)) {
     n_l <- nrow(fit$X_list[[l]])
@@ -245,7 +243,7 @@ library(MASS)
       mu_gradS_cov_list[[l]] <- stats::cov(cbind(psi1, psiS))[1:(d*K), (d*K + 1):(2*d*K)] / n0
     }
   }
-  
+
   list(H_inv = H_inv, gradS = gradS, gradS_cov = gradS_cov,
        mu_cov_list = mu_cov_list, mu_gradS_cov_list = mu_gradS_cov_list)
 }
@@ -254,7 +252,7 @@ library(MASS)
   H_inv <- caches$H_inv
   H_inv_diag <- if (diag && length(dim(H_inv)) == 2) diag(H_inv) else NULL
   softmax_vec <- function(u) { u <- u - max(u); e <- exp(u); e/sum(e) }
-  
+
   obj_u <- function(u) {
     gamma <- softmax_vec(u)
     weighted_mu <- Reduce(`+`, Map(function(g, mu) g * mu, gamma, mu_resample_list))
@@ -275,9 +273,9 @@ library(MASS)
   u0 <- rep(0, length(mu_resample_list))
   optg <- optim(u0, obj_u, gr_u, method = "BFGS")
   gamma_resample <- softmax_vec(optg$par)
-  
+
   weighted_mu_sum <- Reduce(`+`, Map(function(g, mu) g * mu, gamma_resample, mu_resample_list))
-  
+
   obj_theta <- function(th) {
     th_mat <- matrix(th, nrow = d, byrow = FALSE)
     Xth <- X0 %*% th_mat
@@ -318,7 +316,7 @@ library(MASS)
 .train_lasso <- function(X, y, intercept = FALSE, lambda_val = NULL, max_iter = 1e5) {
   X <- as.matrix(X); y <- as.numeric(y)
   X_aug <- if (intercept) cbind(1, X) else X
-  
+
   if (is.null(lambda_val) || identical(lambda_val, "CV.min")) {
     cvfit <- cv.glmnet(X_aug, y, family = "gaussian",
                        alpha = 1, intercept = FALSE, standardize = FALSE)
@@ -348,7 +346,7 @@ library(MASS)
   ed <- eigen((Gamma + t(Gamma)) / 2, symmetric = TRUE)
   lam <- pmax(ed$values, 1e-3)
   Gamma_pos <- ed$vectors %*% diag(lam, nrow = L) %*% t(ed$vectors)
-  
+
   v <- CVXR::Variable(L)
   G <- Gamma_pos + delta * diag(L)
   prob <- CVXR::Problem(
@@ -377,11 +375,11 @@ library(MASS)
   gen_mu <- as.numeric(gen_mu)
   gen_dim <- length(gen_mu)
   out <- matrix(0, gen_size, gen_dim)
-  
+
   if (threshold == 2) {
     return(MASS::mvrnorm(gen_size, mu = gen_mu, Sigma = gen_Cov))
   }
-  
+
   n_picked <- 0
   if (threshold == 0) {
     thres <- stats::qnorm(1 - alpha_thres / (2 * gen_dim))
@@ -415,42 +413,42 @@ library(MASS)
   d <- fit$d
   gen_dim <- L * (L + 1) / 2
   Var_Gamma <- matrix(NA_real_, gen_dim, gen_dim)
-  
+
   N <- nrow(fit$X0_use)
   Sigma0 <- crossprod(fit$X0_use) / N
-  
+
   .Sigma_l <- function(l) {
     # If you want exact per-source covariance, store X_list in fit and use:
     # Xl <- if (fit$intercept) cbind(1, fit$X_list[[l]]) else fit$X_list[[l]]
     # crossprod(Xl) / nrow(Xl)
     Sigma0
   }
-  
+
   if (fit$mode == "low_dim") {
     for (k1 in 1:L) for (l1 in k1:L) {
       for (k2 in 1:L) for (l2 in k2:L) {
         ind1 <- .index_map(L, l1, k1)
         ind2 <- .index_map(L, l2, k2)
-        
+
         bl1 <- fit$beta_list[l1, ]; bk1 <- fit$beta_list[k1, ]
         bl2 <- fit$beta_list[l2, ]; bk2 <- fit$beta_list[k2, ]
-        
+
         Sigma_l1 <- .Sigma_l(l1); Sigma_k1 <- .Sigma_l(k1)
-        
+
         Proj1    <- solve(Sigma_l1, Sigma0 %*% bk1)
         Proj2_l1 <- if (l2 == l1) solve(Sigma_l1, Sigma0 %*% bk2) else rep(0, d)
         Proj2_k1 <- if (k2 == l1) solve(Sigma_l1, Sigma0 %*% bl2) else rep(0, d)
         val1 <- (fit$dev_vec[l1] / nrow(Sigma_l1)) * as.numeric(t(Proj1) %*% Sigma_l1 %*% (Proj2_l1 + Proj2_k1))
-        
+
         Proj3    <- solve(Sigma_k1, Sigma0 %*% bl1)
         Proj4_l1 <- if (l2 == k1) solve(Sigma_k1, Sigma0 %*% bk2) else rep(0, d)
         Proj4_k1 <- if (k2 == k1) solve(Sigma_k1, Sigma0 %*% bl2) else rep(0, d)
         val2 <- (fit$dev_vec[k1] / nrow(Sigma_k1)) * as.numeric(t(Proj3) %*% Sigma_k1 %*% (Proj4_l1 + Proj4_k1))
-        
+
         P1 <- as.numeric(fit$X0_use %*% bl1) * as.numeric(fit$X0_use %*% bk1)
         P2 <- as.numeric(fit$X0_use %*% bl2) * as.numeric(fit$X0_use %*% bk2)
         val3 <- mean((P1 - mean(P1)) * (P2 - mean(P2))) / N
-        
+
         Var_Gamma[ind1, ind2] <- val1 + val2 + val3
       }
     }
@@ -460,29 +458,29 @@ library(MASS)
       for (k2 in 1:L) for (l2 in k2:L) {
         ind1 <- .index_map(L, l1, k1)
         ind2 <- .index_map(L, l2, k2)
-        
+
         dev_l1 <- fit$fits_info[[l1]]$dev
         dev_k1 <- fit$fits_info[[k1]]$dev
-        
+
         Proj1    <- fit$Proj_array[l1, k1, ]
         Proj2_l1 <- if (l2 == l1) fit$Proj_array[l2, k2, ] else rep(0, d)
         Proj2_k1 <- if (k2 == l1) fit$Proj_array[k2, l2, ] else rep(0, d)
         val1 <- (dev_l1 / nrow(Sigma0)) * as.numeric(t(Proj1) %*% .Sigma_l(l1) %*% (Proj2_l1 + Proj2_k1))
-        
+
         Proj3    <- fit$Proj_array[k1, l1, ]
         Proj4_l1 <- if (l2 == k1) fit$Proj_array[l2, k2, ] else rep(0, d)
         Proj4_k1 <- if (k2 == k1) fit$Proj_array[k2, l2, ] else rep(0, d)
         val2 <- (dev_k1 / nrow(Sigma0)) * as.numeric(t(Proj3) %*% .Sigma_l(k1) %*% (Proj4_l1 + Proj4_k1))
-        
+
         P1 <- as.numeric(fit$X0_use %*% Proj1) * as.numeric(fit$X0_use %*% Proj3)
         P2 <- as.numeric(fit$X0_use %*% Proj2_l1) * as.numeric(fit$X0_use %*% Proj4_k1)
         val3 <- mean((P1 - mean(P1)) * (P2 - mean(P2))) / nrow(fit$X0_use)
-        
+
         Var_Gamma[ind1, ind2] <- val1 + val2 + val3
       }
     }
   }
-  
+
   diag_correction <- pmax(tau * diag(Var_Gamma), 1.0 / nrow(fit$X0_use))
   Var_Gamma + diag(diag_correction)
 }
@@ -494,18 +492,17 @@ library(MASS)
 
 # --------------------------- Outcome Learners ---------------------------
 
-.fit_outcome <- function(X, y, learner = "xgb", params = NULL, seed = NULL, sample_weight = NULL) {
-  if (!is.null(seed)) set.seed(seed)
+.fit_outcome <- function(X, y, learner = "xgb", params = NULL, sample_weight = NULL) {
   if (is.null(sample_weight)) sample_weight <- rep(1, length(y))
   X <- as.matrix(X); y <- as.numeric(y)
-  
+
   if (learner == "linear") {
     df <- data.frame(y = y, X)
     m <- lm(y ~ ., data = df, weights = sample_weight)
     pred <- function(Xnew) as.numeric(predict(m, newdata = data.frame(Xnew)))
     return(list(predict = pred, model = m))
   }
-  
+
   if (learner == "xgb") {
     if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
     base_params <- list(
@@ -513,29 +510,28 @@ library(MASS)
       eval_metric = "rmse"
     )
     if (!is.null(params)) base_params <- modifyList(base_params, params)
-    
+
     dtrain <- xgboost::xgb.DMatrix(data = X, label = y, weight = sample_weight)
     nrounds <- if (!is.null(params$nrounds)) params$nrounds else 200
-    
+
     m <- xgboost::xgb.train(params = base_params, data = dtrain,
                             nrounds = nrounds, verbose = 0)
     pred <- function(Xnew) as.numeric(predict(m, xgboost::xgb.DMatrix(as.matrix(Xnew))))
     return(list(predict = pred, model = m))
   }
-  
+
   stop("Unknown outcome learner: ", learner)
 }
 
 # --------------------------- Density Learners ---------------------------
 
-.fit_density <- function(X, X_target, learner = "xgb", params = NULL, seed = NULL) {
-  if (!is.null(seed)) set.seed(seed)
+.fit_density <- function(X, X_target, learner = "xgb", params = NULL) {
   X <- as.matrix(X); X_target <- as.matrix(X_target)
   ratio <- nrow(X) / nrow(X_target)
-  
+
   Xc <- rbind(X, X_target)
   yc <- c(rep(0, nrow(X)), rep(1, nrow(X_target)))
-  
+
   if (learner == "logistic") {
     df <- data.frame(y = yc, Xc)
     m <- glm(y ~ ., data = df, family = binomial())
@@ -546,7 +542,7 @@ library(MASS)
     }
     return(list(predict = pred, model = m, sample_ratio = ratio))
   }
-  
+
   if (learner == "xgb") {
     if (!requireNamespace("xgboost", quietly = TRUE)) {
       stop("Density learner 'xgb' requested but package 'xgboost' is not installed.")
@@ -560,7 +556,7 @@ library(MASS)
       params_no_nrounds$nrounds <- NULL
       base_params <- modifyList(base_params, params_no_nrounds)
     }
-    
+
     dtrain <- xgboost::xgb.DMatrix(data = as.matrix(Xc), label = yc)
     m <- xgboost::xgb.train(params = base_params, data = dtrain,
                             nrounds = nrounds, verbose = 0)
@@ -571,7 +567,7 @@ library(MASS)
     }
     return(list(predict = pred, model = m, sample_ratio = ratio))
   }
-  
+
   stop("Unknown density learner: ", learner)
 }
 
