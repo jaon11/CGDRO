@@ -21,7 +21,7 @@ library(MASS)
 ######################################################################
 ######################### DRlm-Classification ########################
 ######################################################################
-
+#### xgb.CV of density ratio estimation: get faster; default xgb did not work.
 .softmax_reduced <- function(x) {
   # x: (n, K) where K = C-1 (reference class not included)
   # returns (n, K), probs for non-reference classes
@@ -33,13 +33,212 @@ library(MASS)
 
 # ---- Probability learner (multi-class) using nnet::multinom ----
 .compute_proba_once <- function(X, y, X0, learner = "xgb", split = FALSE,
-                                proba_params = NULL) {
+                                proba_params = NULL, seed = 123) {
+  set.seed(seed)
   y <- as.factor(y)  # required by multinom
   num_class <- length(levels(y))
 
   # train/predict wrappers
-  if (learner == "xgb") {
-    # pure multinomial logistic regression (no hidden layer)
+  if (learner == "xgb.cv") {
+      train_model <- function(X, y) {
+        if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
+
+        # --- Preprocess ----------------------------------------------------------
+        X_mat <- if (is.data.frame(X)) {
+          mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+        } else data.matrix(X)
+
+        y_fac <- as.factor(y)
+        classes <- levels(y_fac)
+        y_int <- as.integer(y_fac) - 1L
+
+        # optional weight & seed (mirrors your style of reading from parent env)
+        sw   <- get0("sample_weight", ifnotfound = NULL, inherits = TRUE)
+        seed <- get0("seed",           ifnotfound = 1L,   inherits = TRUE)
+
+        dtrain <- xgboost::xgb.DMatrix(data = X_mat, label = y_int, weight = sw, missing = NA)
+
+        base_params <- list(
+          objective   = "multi:softprob",
+          eval_metric = "mlogloss",
+          num_class   = length(classes)
+        )
+
+        # --- Branch 1: use provided proba_params --------------------------------
+        pp <- get0("proba_params", ifnotfound = NULL, inherits = TRUE)
+
+        if (!is.null(pp)) {
+          if (!is.list(pp)) stop("`proba_params` must be a named list if provided.")
+          # pull nrounds out
+          nrounds <- if (!is.null(pp$nrounds)) as.integer(pp$nrounds) else 200L
+          pp$nrounds <- NULL
+
+          params <- utils::modifyList(base_params, pp)
+
+          m <- xgboost::xgb.train(
+            params  = params,
+            data    = dtrain,
+            nrounds = nrounds,
+            verbose = 0
+          )
+
+          return(list(model = m, classes = classes))
+        }
+
+        # --- Branch 2: 5-fold stratified CV to choose params --------------------
+        set.seed(seed)
+
+        # a sensible default grid (adjust as you like)
+        param_grid <- expand.grid(
+          eta               = c(0.05, 0.1, 0.2),
+          max_depth         = c(4, 6, 8),
+          min_child_weight  = c(1, 3),
+          subsample         = c(0.8, 1.0),
+          colsample_bytree  = c(0.8, 1.0),
+          lambda            = c(1, 5),
+          alpha             = c(0, 1),
+          KEEP.OUT.ATTRS    = FALSE,
+          stringsAsFactors  = FALSE
+        )
+
+        best_score      <- Inf
+        best_nrounds    <- 200L
+        best_params_row <- NULL
+
+        # We’ll let early stopping pick nrounds; run up to max_nrounds
+        max_nrounds <- 1000L
+        early_stop  <- 50L
+
+        for (i in seq_len(nrow(param_grid))) {
+          row <- as.list(param_grid[i, , drop = FALSE])
+          params_try <- utils::modifyList(base_params, row)
+
+          cv <- xgboost::xgb.cv(
+            params                = params_try,
+            data                  = dtrain,
+            nrounds               = max_nrounds,
+            nfold                 = 5,
+            stratified            = TRUE,
+            early_stopping_rounds = early_stop,
+            verbose               = 0,
+            maximize              = FALSE,   # lower mlogloss is better
+            showsd                = TRUE,
+            seed                  = seed
+          )
+
+          # xgb.cv stores the best logloss in evaluation_log; use cv$best_iteration
+          cv_best_iter  <- cv$best_iteration
+          cv_best_score <- cv$evaluation_log$test_mlogloss_mean[cv_best_iter]
+
+          if (!is.na(cv_best_score) && cv_best_score < best_score) {
+            best_score      <- cv_best_score
+            best_nrounds    <- cv_best_iter
+            best_params_row <- row
+          }
+        }
+
+        if (is.null(best_params_row)) {
+          # fallback (shouldn’t happen unless data is degenerate)
+          best_params_row <- as.list(param_grid[1, , drop = FALSE])
+          best_nrounds    <- 200L
+        }
+
+        final_params <- utils::modifyList(base_params, best_params_row)
+
+        m <- xgboost::xgb.train(
+          params  = final_params,
+          data    = dtrain,
+          nrounds = best_nrounds,
+          verbose = 0
+        )
+
+        list(model = m, classes = classes)
+      }
+
+      predict_prob <- function(m, X) {
+        X_mat <- if (is.data.frame(X)) {
+          mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+        } else data.matrix(X)
+
+        pred <- predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA))
+        K <- length(m$classes)
+        probs <- matrix(pred, ncol = K, byrow = TRUE)
+        colnames(probs) <- m$classes
+        probs
+      }
+  }else if (learner == "xgb"){
+    # ---------- Multiclass XGBoost (no CV), same style as your xib ----------
+    # train_model(): pull nrounds out of params, modifyList with base_params, train
+    # predict_prob(): return n x K probability matrix (cols named by class levels)
+
+    train_model <- function(X, y, params = NULL) {
+      if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
+
+      # 1) nrounds default + strip from params
+      nrounds <- if (!is.null(params) && !is.null(params$nrounds)) params$nrounds else 200L
+      params_no_nrounds <- params
+      if (!is.null(params_no_nrounds)) params_no_nrounds$nrounds <- NULL
+      if (!is.null(params_no_nrounds) && !is.list(params_no_nrounds)) {
+        stop("`params` must be a named list when provided.")
+      }
+
+      # 2) targets -> integers 0..K-1 + class levels
+      y_fac <- as.factor(y)
+      classes <- levels(y_fac)
+      y_int <- as.integer(y_fac) - 1L
+
+      # 3) base params + user overrides
+      base_params <- list(
+        objective   = "multi:softprob",
+        eval_metric = "mlogloss",
+        num_class   = length(classes)
+      )
+      if (!is.null(params_no_nrounds)) {
+        base_params <- utils::modifyList(base_params, params_no_nrounds)
+      }
+
+      # 4) data -> DMatrix (optionally with sample weights)
+      X_mat <- if (is.data.frame(X)) {
+        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+      } else {
+        data.matrix(X)
+      }
+      sw <- get0("sample_weight", ifnotfound = NULL, inherits = TRUE)
+      dtrain <- xgboost::xgb.DMatrix(data = X_mat, label = y_int, weight = sw, missing = NA)
+
+      # 5) train
+      m <- xgboost::xgb.train(
+        params  = base_params,
+        data    = dtrain,
+        nrounds = nrounds,
+        verbose = 0
+      )
+
+      list(
+        model   = m,
+        params  = base_params,
+        nrounds = nrounds,
+        classes = classes
+      )
+    }
+
+    predict_prob <- function(m, X) {
+      if (is.null(m$model) || is.null(m$classes)) {
+        stop("`m` must be the object returned by train_model() with $model and $classes.")
+      }
+      X_mat <- if (is.data.frame(X)) {
+        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+      } else {
+        data.matrix(X)
+      }
+      raw <- predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA))
+      K <- length(m$classes)
+      probs <- matrix(raw, ncol = K, byrow = TRUE)
+      colnames(probs) <- m$classes
+      probs
+    }
+
+  }else if (learner == "linear"){
     train_model <- function(X, y) {
       df <- data.frame(y = y, X)
       # you can pass decay / maxit in proba_params if desired
@@ -47,10 +246,11 @@ library(MASS)
                 proba_params)
       do.call(multinom, args)
     }
-    predict_prob <- function(m, Xnew) {
-      predict(m, newdata = data.frame(Xnew), type = "probs")
+    predict_prob <- function(m, X) {
+      predict(m, newdata = data.frame(X), type = "probs")
     }
-  } else {
+
+  }else {
     stop("Unsupported prob_learner: use learner = 'nnet' for multi-class.")
   }
 
@@ -88,17 +288,190 @@ library(MASS)
 
 # ---- Density-ratio learner (binary) via glmnet (binomial) ----
 .compute_density_once <- function(X, X0, learner = "linear", split = FALSE,
-                                  density_params = NULL) {
-
+                                  density_params = NULL, seed = 123) {
+  set.seed(seed)
   if (learner == "linear") {
-    train_glmnet <- function(X, y) {
+    train_model <- function(X, y) {
       # y should be numeric 0/1
       cv.glmnet(X, y, family = "binomial", type.measure = "deviance")
     }
     predict_prob <- function(m, X) as.numeric(predict(m, X, s = "lambda.min", type = "response"))
   } else if (learner == "xgb") {
-    stop("If you need xgboost density learner, enable xgboost and re-add it.")
-  } else stop("Unknown density_learner: ", learner)
+    # ---------- Multiclass XGBoost (no CV), same style as your xib ----------
+    # train_model(): pull nrounds out of params, modifyList with base_params, train
+    # predict_prob(): return n x K probability matrix (cols named by class levels)
+
+    train_model <- function(X, y, params = NULL) {
+      if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
+      X_mat <- if (is.data.frame(X)) {
+        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+      } else data.matrix(X)
+
+      # Binary labels -> {0,1}
+      if (is.factor(y) || is.character(y) || is.logical(y)) y <- as.integer(as.factor(y)) - 1L
+      y <- as.numeric(y)
+      if (!all(y %in% c(0, 1))) stop("y must be binary (0/1, logical, or two-level factor).")
+
+      # Pull nrounds out of params (default 200), and don't keep it in the params list
+      nrounds <- if (!is.null(params) && !is.null(params$nrounds)) params$nrounds else 200
+      # Base params without nrounds
+      base_params <- list(objective = "binary:logistic", eval_metric = "logloss")
+      if (!is.null(params)) {
+        params_no_nrounds <- params
+        params_no_nrounds$nrounds <- NULL
+        base_params <- modifyList(base_params, params_no_nrounds)
+      }
+
+      dtrain <- xgboost::xgb.DMatrix(data = as.matrix(X_mat), label = y)
+      m <- xgboost::xgb.train(params = base_params, data = dtrain,
+                              nrounds = nrounds, verbose = 0)
+
+      list(
+        model   = m,
+        params  = base_params,
+        nrounds = nrounds
+      )
+    }
+
+    predict_prob <- function(m, X) {
+      if (is.null(m$model)) {
+        stop("`m` must be the object returned by train_model() with $model.")
+      }
+      X_mat <- if (is.data.frame(X)) {
+        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+      } else {
+        data.matrix(X)
+      }
+      probs <- predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA))
+      probs
+    }
+
+
+    }else if (learner == "xgb.cv") {
+    train_model <- function(X, y, params = NULL) {
+          if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
+
+          # --- Preprocess ----------------------------------------------------------
+          # Encode X like glm (handles factors/characters)
+          X_mat <- if (is.data.frame(X)) {
+            mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+          } else data.matrix(X)
+
+          # Binary labels -> {0,1}
+          if (is.factor(y) || is.character(y) || is.logical(y)) y <- as.integer(as.factor(y)) - 1L
+          y <- as.numeric(y)
+          if (!all(y %in% c(0, 1))) stop("y must be binary (0/1, logical, or two-level factor).")
+
+          # Optional weight & seed
+          sw   <- get0("sample_weight", ifnotfound = NULL, inherits = TRUE)
+          seed <- get0("seed",           ifnotfound = 1L,   inherits = TRUE)
+
+          dtrain <- xgboost::xgb.DMatrix(data = X_mat, label = y, weight = sw, missing = NA)
+
+          # --- Base params + user overrides (pull nrounds out) ---------------------
+          nrounds <- if (!is.null(params) && !is.null(params$nrounds)) params$nrounds else 200L
+          params_no_nrounds <- params
+          if (!is.null(params_no_nrounds)) {
+            if (!is.list(params_no_nrounds)) stop("`params` must be a named list when provided.")
+            params_no_nrounds$nrounds <- NULL
+          }
+
+          base_params <- list(objective = "binary:logistic", eval_metric = "logloss")
+          if (!is.null(params_no_nrounds)) {
+            base_params <- utils::modifyList(base_params, params_no_nrounds)
+          }
+
+          # --- Branch 1: direct training if params provided ------------------------
+          if (!is.null(params)) {
+            m <- xgboost::xgb.train(
+              params  = base_params,
+              data    = dtrain,
+              nrounds = nrounds,
+              verbose = 0
+            )
+            return(list(model = m, params = base_params, nrounds = nrounds))
+          }
+
+          # --- Branch 2: 5-fold stratified CV (when params == NULL) ----------------
+          set.seed(seed)
+
+          # A compact but useful grid (tune as needed)
+          param_grid <- expand.grid(
+            eta               = c(0.05, 0.1, 0.2),
+            max_depth         = c(3, 5, 7),
+            min_child_weight  = c(1, 3),
+            subsample         = c(0.8, 1.0),
+            colsample_bytree  = c(0.8, 1.0),
+            lambda            = c(1, 5),
+            alpha             = c(0, 1),
+            KEEP.OUT.ATTRS    = FALSE,
+            stringsAsFactors  = FALSE
+          )
+
+          best_score      <- Inf
+          best_nrounds    <- 200L
+          best_params_row <- NULL
+
+          max_nrounds <- 1000L
+          early_stop  <- 50L
+
+          for (i in seq_len(nrow(param_grid))) {
+            row <- as.list(param_grid[i, , drop = FALSE])
+            params_try <- utils::modifyList(base_params, row)
+
+            cv <- xgboost::xgb.cv(
+              params                = params_try,
+              data                  = dtrain,
+              nrounds               = max_nrounds,
+              nfold                 = 5,
+              stratified            = TRUE,
+              early_stopping_rounds = early_stop,
+              verbose               = 0,
+              maximize              = FALSE,  # minimize logloss
+              showsd                = TRUE,
+              seed                  = seed
+            )
+
+            cv_best_iter <- cv$best_iteration
+            if (is.null(cv_best_iter) || is.na(cv_best_iter) || cv_best_iter <= 0) {
+              cv_best_iter <- nrow(cv$evaluation_log)
+            }
+            cv_best_score <- cv$evaluation_log$test_logloss_mean[cv_best_iter]
+
+            if (!is.na(cv_best_score) && cv_best_score < best_score) {
+              best_score      <- cv_best_score
+              best_nrounds    <- cv_best_iter
+              best_params_row <- row
+            }
+          }
+
+          if (is.null(best_params_row)) {
+            best_params_row <- as.list(param_grid[1, , drop = FALSE])
+            best_nrounds    <- 200L
+          }
+
+          final_params <- utils::modifyList(base_params, best_params_row)
+
+          m <- xgboost::xgb.train(
+            params  = final_params,
+            data    = dtrain,
+            nrounds = best_nrounds,
+            verbose = 0
+          )
+
+          list(model = m, params = final_params, nrounds = best_nrounds)
+        }
+
+    predict_prob <- function(m, X) {
+          if (is.null(m$model)) stop("`m` must be the object returned by train_model() with $model.")
+          X_mat <- if (is.data.frame(X)) {
+            mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
+          } else data.matrix(X)
+          as.numeric(predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA)))
+        }
+
+
+  }else stop("Unknown density_learner: ", learner)
 
   if (split) {
     n <- nrow(X)
@@ -108,7 +481,7 @@ library(MASS)
     XA <- rbind(X[indA, ], X0); yA <- c(rep(0, length(indA)), rep(1, nrow(X0)))
     XB <- rbind(X[indB, ], X0); yB <- c(rep(0, length(indB)), rep(1, nrow(X0)))
 
-    mA <- train_glmnet(XA, yA); mB <- train_glmnet(XB, yB)
+    mA <- train_model(XA, yA); mB <- train_model(XB, yB)
 
     pAB <- predict_prob(mA, X[indB, ])
     pBA <- predict_prob(mB, X[indA, ])
@@ -118,7 +491,7 @@ library(MASS)
     omegaX <- numeric(n); omegaX[indA] <- omegaA; omegaX[indB] <- omegaB
   } else {
     Xc <- rbind(X, X0); yc <- c(rep(0, nrow(X)), rep(1, nrow(X0)))
-    m <- train_glmnet(Xc, yc)
+    m <- train_model(Xc, yc)
     p <- predict_prob(m, X)
     omegaX <- (p/(1 - p)) * (nrow(X)/nrow(X0))
   }
@@ -128,7 +501,7 @@ library(MASS)
 
 # ---- Fit probas/densities for all sources ----
 .fit_proba_density <- function(X_list, y_list, X0, prob_learner, density_learner,
-                               split, proba_params_list, density_params_list) {
+                               split, proba_params_list, density_params_list, seed=123) {
   L <- length(X_list)
   probaX_list  <- vector("list", L)
   probaX0_list <- vector("list", L)
@@ -136,14 +509,14 @@ library(MASS)
   for (l in seq_len(L)) {
     pr <- .compute_proba_once(X_list[[l]], y_list[[l]], X0,
                               learner = prob_learner, split = split,
-                              proba_params = proba_params_list[[l]])
+                              proba_params = proba_params_list[[l]], seed = seed)
     probaX_list[[l]]  <- pr$predX         # (n_l, C)
     probaX0_list[[l]] <- pr$predX0        # (n0, C)
   }
   for (l in seq_len(L)) {
     omegaX_list[[l]] <- .compute_density_once(X_list[[l]], X0,
                                               learner = density_learner, split = split,
-                                              density_params = density_params_list[[l]])
+                                              density_params = density_params_list[[l]], seed = seed)
   }
   list(probaX_list = probaX_list, probaX0_list = probaX0_list, omegaX_list = omegaX_list)
 }
@@ -489,7 +862,7 @@ library(MASS)
 ######################################################################
 ################################ DRoL ################################
 ######################################################################
-
+#### do we need CV here for xgb both learner?
 # --------------------------- Outcome Learners ---------------------------
 
 .fit_outcome <- function(X, y, learner = "xgb", params = NULL, sample_weight = NULL) {
@@ -499,7 +872,7 @@ library(MASS)
   if (learner == "linear") {
     df <- data.frame(y = y, X)
     m <- lm(y ~ ., data = df, weights = sample_weight)
-    pred <- function(Xnew) as.numeric(predict(m, newdata = data.frame(Xnew)))
+    pred <- function(X) as.numeric(predict(m, newdata = data.frame(X)))
     return(list(predict = pred, model = m))
   }
 
@@ -516,7 +889,7 @@ library(MASS)
 
     m <- xgboost::xgb.train(params = base_params, data = dtrain,
                             nrounds = nrounds, verbose = 0)
-    pred <- function(Xnew) as.numeric(predict(m, xgboost::xgb.DMatrix(as.matrix(Xnew))))
+    pred <- function(X) as.numeric(predict(m, xgboost::xgb.DMatrix(as.matrix(X))))
     return(list(predict = pred, model = m))
   }
 
@@ -532,11 +905,11 @@ library(MASS)
   Xc <- rbind(X, X_target)
   yc <- c(rep(0, nrow(X)), rep(1, nrow(X_target)))
 
-  if (learner == "logistic") {
+  if (learner == "linear") {
     df <- data.frame(y = yc, Xc)
     m <- glm(y ~ ., data = df, family = binomial())
-    pred <- function(Xnew) {
-      p1 <- as.numeric(predict(m, newdata = data.frame(Xnew), type = "response"))
+    pred <- function(X) {
+      p1 <- as.numeric(predict(m, newdata = data.frame(X), type = "response"))
       p1 <- pmin(pmax(p1, 1e-8), 1 - 1e-8)
       (p1 / (1 - p1)) * ratio
     }
@@ -560,8 +933,8 @@ library(MASS)
     dtrain <- xgboost::xgb.DMatrix(data = as.matrix(Xc), label = yc)
     m <- xgboost::xgb.train(params = base_params, data = dtrain,
                             nrounds = nrounds, verbose = 0)
-    pred <- function(Xnew) {
-      p1 <- as.numeric(predict(m, xgboost::xgb.DMatrix(as.matrix(Xnew))))
+    pred <- function(X) {
+      p1 <- as.numeric(predict(m, xgboost::xgb.DMatrix(as.matrix(X))))
       p1 <- pmin(pmax(p1, 1e-8), 1 - 1e-8)
       (p1 / (1 - p1)) * ratio
     }
