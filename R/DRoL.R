@@ -6,14 +6,13 @@
 # =====================================================================
 #' @param seed splitting seed in outcome/density estimation (default: 123)
 fit_drol <- function(X_list, y_list, X0 = NULL,
-                     outcome_learner = "xgb",
-                     density_learner = "xgb",
-                     intercept = FALSE,
+                     f_learner = "xgb",
+                     w_learner = "xgb",
                      seed = 123) {
   set.seed(seed)
 
   # center each source; keep y numeric
-  X_list <- lapply(X_list, function(Xi) { Xi <- as.matrix(Xi); sweep(Xi, 2, colMeans(Xi), "-") })
+  X_list <- lapply(X_list, function(Xi) { Xi <- as.matrix(Xi)})
   y_list <- lapply(y_list, function(yi) as.numeric(yi))
 
   L <- length(X_list)
@@ -23,32 +22,22 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
   # target features
   if (is.null(X0)) X0 <- do.call(rbind, X_list)
   X0 <- as.matrix(X0)
-  X0 <- sweep(X0, 2, colMeans(X0), "-")
   N <- nrow(X0)
-
-  # optional intercept column
-  if (intercept) {
-    X_list <- lapply(X_list, function(Xi) cbind(1, Xi))
-    X0 <- cbind(1, X0)
-  }
 
   d <- ncol(X0)
 
-  outcome_params_list <- replicate(L, NULL, simplify = FALSE)
-  density_params_list <- replicate(L, NULL, simplify = FALSE)
 
   # check arguments
   check_arg_drol_fit(X_list, y_list, X0,
-                     outcome_learner, density_learner,
-                     intercept, seed)
+                     f_learner, w_learner, seed)
 
   # -------- Plug-in Γ (using full-source outcome models) --------
   source_full_models <- vector("list", L)
   pred_full_mat <- matrix(0, N, L)
 
   for (l in seq_len(L)) {
-    om <- .fit_outcome(X_list[[l]], y_list[[l]], learner = outcome_learner,
-                       params = outcome_params_list[[l]])
+    om <- .learn_f(mode = "reg", learner = f_learner)
+    om$fit(X_list[[l]], y_list[[l]])
     source_full_models[[l]] <- om
     pred_full_mat[, l] <- om$predict(X0)
   }
@@ -59,47 +48,52 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
   source_B_models <- vector("list", L)
   density_A_models <- vector("list", L)
   density_B_models <- vector("list", L)
+  indA_list <- vector("list", L)
+  indB_list <- vector("list", L)
 
   for (l in seq_len(L)) {
-    indA <- sample(nls[l], floor(nls[l]/2))
-    indB <- setdiff(seq_len(nls[l]), indA)
+    split_info <- .split_data(X_list[[l]], y_list[[l]], seed = seed)
 
-    source_A_models[[l]] <- .fit_outcome(X_list[[l]][indA, , drop = FALSE], y_list[[l]][indA],
-                                         learner = outcome_learner,
-                                         params = outcome_params_list[[l]])
-    source_B_models[[l]] <- .fit_outcome(X_list[[l]][indB, , drop = FALSE], y_list[[l]][indB],
-                                         learner = outcome_learner,
-                                         params = outcome_params_list[[l]])
-    density_A_models[[l]] <- .fit_density(X_list[[l]][indA, , drop = FALSE], X0,
-                                          learner = density_learner,
-                                          params = density_params_list[[l]])
-    density_B_models[[l]] <- .fit_density(X_list[[l]][indB, , drop = FALSE], X0,
-                                          learner = density_learner,
-                                          params = density_params_list[[l]])
+    sA_model <- .learn_f(mode = "reg", learner = f_learner)
+    sB_model <- .learn_f(mode = "reg", learner = f_learner)
+    dA_model <- .learn_w(learner = w_learner)
+    dB_model <- .learn_w(learner = w_learner)
+    indA <- split_info$idx_A; indB <- split_info$idx_B
+
+    # fit models
+    sA_model$fit(X_list[[l]][indA, , drop = FALSE], y_list[[l]][indA])
+    sB_model$fit(X_list[[l]][indB, , drop = FALSE], y_list[[l]][indB])
+    dA_model$fit(X_list[[l]][indA, , drop = FALSE], X0)
+    dB_model$fit(X_list[[l]][indB, , drop = FALSE], X0)
+
+    source_A_models[[l]] <- sA_model
+    source_B_models[[l]] <- sB_model
+    density_A_models[[l]] <- dA_model
+    density_B_models[[l]] <- dB_model
+
+    indA_list[[l]] <- indA
+    indB_list[[l]] <- indB
   }
 
   # -------- Bias-corrected Γ --------
   Gamma_corr <- Gamma_plug
   for (k in seq_len(L)) {
-    fkA <- source_A_models[[k]]$predict
-    fkB <- source_B_models[[k]]$predict
-    wkA <- density_A_models[[k]]$predict
-    wkB <- density_B_models[[k]]$predict
-    half_k <- floor(nls[k] / 2)
-    kA <- seq_len(half_k); kB <- (half_k + 1):nls[k]
+    fkA <- source_A_models[[k]]
+    fkB <- source_B_models[[k]]
+    wkA <- density_A_models[[k]]
+    wkB <- density_B_models[[k]]
+
 
     for (l in seq_len(L)) {
-      flA <- source_A_models[[l]]$predict
-      flB <- source_B_models[[l]]$predict
-      wlA <- density_A_models[[l]]$predict
-      wlB <- density_B_models[[l]]$predict
-      half_l <- floor(nls[l] / 2)
-      lA <- seq_len(half_l); lB <- (half_l + 1):nls[l]
+      flA <- source_A_models[[l]]
+      flB <- source_B_models[[l]]
+      wlA <- density_A_models[[l]]
+      wlB <- density_B_models[[l]]
 
-      num1A <- .bias_correct_term(fkA, flA, wlA, X_list[[l]][lB, , drop = FALSE], y_list[[l]][lB])
-      num2A <- .bias_correct_term(flA, fkA, wkA, X_list[[k]][kB, , drop = FALSE], y_list[[k]][kB])
-      num1B <- .bias_correct_term(fkB, flB, wlB, X_list[[l]][lA, , drop = FALSE], y_list[[l]][lA])
-      num2B <- .bias_correct_term(flB, fkB, wkB, X_list[[k]][kA, , drop = FALSE], y_list[[k]][kA])
+      num1A <- .bias_correct_term(fkA, flA, wlA, X_list[[l]][indB_list[[l]], , drop = FALSE], y_list[[l]][indB_list[[l]]])
+      num2A <- .bias_correct_term(flA, fkA, wkA, X_list[[k]][indB_list[[k]], , drop = FALSE], y_list[[k]][indB_list[[k]]])
+      num1B <- .bias_correct_term(fkB, flB, wlB, X_list[[l]][indA_list[[l]], , drop = FALSE], y_list[[l]][indA_list[[l]]])
+      num2B <- .bias_correct_term(flB, fkB, wkB, X_list[[k]][indA_list[[k]], , drop = FALSE], y_list[[k]][indA_list[[k]]])
 
       Gamma_corr[k, l] <- Gamma_corr[k, l] - (num1A + num2A + num1B + num2B) / 2
     }
@@ -108,9 +102,8 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
 
   list(
     # meta
-    outcome_learner = outcome_learner,
-    density_learner = density_learner,
-    intercept = intercept,
+    f_learner = f_learner,
+    w_learner = w_learner,
     L = L,
     d = d,
     # data cache
@@ -118,7 +111,8 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
     # predictions + estimators
     pred_full_mat = pred_full_mat,
     Gamma_plug = Gamma_plug,
-    Gamma_corr = Gamma_corr
+    Gamma_corr = Gamma_corr,
+    family = "drol"
   )
 }
 

@@ -1,6 +1,5 @@
 check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, prob_learner = NULL, density_learner = NULL,
-                               split = NULL, intercept = NULL, theta_init = NULL, gamma_init = NULL, eta_init = NULL,
-                               max_iter = NULL, tol = NULL, check_dual = NULL, conv_dual = NULL, verbose = NULL,
+                               split = NULL, max_iter = NULL, tol = NULL, check_dual = NULL, verbose = NULL,
                                seed = NULL){
   if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
   if(is.null(y_list) || (!is.list(y_list))) stop("y_list must be a list")
@@ -15,21 +14,9 @@ check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, prob
   if(is.null(prob_learner) || !(prob_learner %in% c("linear", "xgb", "xgb.cv"))) stop("prob_learner must be one of 'linear', 'xgb', 'xgb.cv'")
   if(is.null(density_learner) || !(density_learner %in% c("linear", "xgb", "xgb.cv"))) stop("density_learner must be one of 'linear', 'xgb', 'xgb.cv'")
   if(is.null(split) || !is.logical(split)) stop("split must be TRUE or FALSE")
-  if(is.null(intercept) || !is.logical(intercept)) stop("intercept must be TRUE or FALSE")
-  if(!is.null(theta_init)){
-    if(!is.numeric(theta_init) || length(theta_init)!= d*(length(unique(y_list[[1]]))-1)) stop(paste0("theta_init must be a numeric vector of length ", d*(length(unique(y_list[[1]]))-1)))
-  }
-  if(!is.null(gamma_init)){
-    if(!is.numeric(gamma_init) || length(gamma_init)!= length(X_list) || any(gamma_init<0)) stop(paste0("gamma_init must be a non-negative numeric vector of length ", length(X_list)))
-    if(abs(sum(gamma_init)-1)>1e-6) stop("the sum of gamma_init must be 1")
-  }
-  if(!is.null(eta_init)){
-    if(!is.numeric(eta_init) || length(eta_init)!=1 || eta_init<=0) stop("eta_init must be a positive numeric value")
-  }
   if(is.null(max_iter) || !is.numeric(max_iter) || length(max_iter)!=1 || max_iter<=0 || max_iter!=round(max_iter)) stop("max_iter must be a positive integer")
   if(is.null(tol) || !is.numeric(tol) || length(tol)!=1 || tol<=0) stop("tol must be a positive numeric value")
   if(is.null(check_dual) || !is.logical(check_dual)) stop("check_dual must be TRUE or FALSE")
-  if(is.null(conv_dual) || !is.logical(conv_dual)) stop("conv_dual must be TRUE or FALSE")
   if(is.null(verbose) || !is.logical(verbose)) stop("verbose must be TRUE or FALSE")
   if(is.null(seed) || !is.numeric(seed) || length(seed)!=1 || seed!=round(seed)) stop("seed must be an integer")
 
@@ -91,7 +78,6 @@ check_arg_drlm_reg_inf <- function(fit = NULL, M = NULL, alpha = NULL, tau = NUL
 check_arg_drol_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL,
                           outcome_learner = NULL,
                           density_learner = NULL,
-                          intercept = NULL,
                           seed = NULL){
   if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
   if(is.null(y_list) || (!is.list(y_list))) stop("y_list must be a list")
@@ -105,7 +91,6 @@ check_arg_drol_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL,
   }
   if(is.null(outcome_learner) || !(outcome_learner %in% c("linear", "xgb", "xgb.cv"))) stop("outcome_learner must be one of 'linear', 'xgb', 'xgb.cv'")
   if(is.null(density_learner) || !(density_learner %in% c("linear", "xgb", "xgb.cv"))) stop("density_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(intercept) || !is.logical(intercept)) stop("intercept must be TRUE or FALSE")
   if(is.null(seed) || !is.numeric(seed) || length(seed)!=1 || seed!=round(seed)) stop("seed must be an integer")
 
 }

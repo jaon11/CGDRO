@@ -18,22 +18,16 @@ probsK_list <- lapply(logits_list, .softmax_reduced)
 probs_list <- lapply(probsK_list, function(PK) cbind(1 - rowSums(PK), PK))
 y_list <- lapply(probs_list, function(Pr) apply(Pr, 1, function(pr) which.max(rmultinom(1, 1, pr)) - 1))
 
-fit <- fit_drlm_cls(X_list, y_list, X0,
-                    prob_learner = "linear", density_learner = "linear",
-                    split = TRUE, intercept = FALSE, max_iter = 300, tol = 1e-5, verbose = TRUE, seed = 123)
-head(predict_proba_drlm_cls(fit))
-inf <- infer_drlm_cls(fit, index = 1, M = 50, alpha = 0.05, parallel = FALSE, diag = TRUE)
+fit <- cgdro(X_list, y_list, X0,
+             family = "drlm_cls", f_learner = "xgb", w_learner = "linear")
+fit$coef_
+fit$weight
+
+predict(fit)
+
+inf <- infer(fit, index = 1, M = 50, alpha = 0.05, parallel = FALSE, n_workers = 2, diag = TRUE)
+inf$CI
 inf$CI_index
-
-inf$CI_U # list of K matrices (d, 2)
-
-fit$theta # d*K matrix
-
-fit$gamma
-
-inf$CI_lb_U # d*K matrix
-inf$CI_ub_U # d*K matrix
-
 
 ######################################################################
 ########################### DRlm-Regression ##########################
@@ -53,14 +47,17 @@ cov0 <- cov_source; diag(cov0) <- 1.5; cov0[1:5,1:5] <- 0.9; diag(cov0[1:5,1:5])
 X0 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov0)
 loading_mat <- matrix(0, nrow = 100, ncol = 2); loading_mat[96:100,1] <- 0.4; loading_mat[99:100,2] <- 0.8 #; loading_mat <- t(loading_mat)
 #
-fit <- fit_drlm_reg(list(X1,X2), list(Y1,Y2), loading_mat, X0 = X0, intercept = FALSE,
-                    delta = 0, lambda = "CV.min", verbose = TRUE)
-print(fit$weight_)
-print(fit$loading_coef_)
-inf <- infer_drlm_reg(fit, M = 50)
-print(inf$CI)
 
 
+fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
+             family = "drlm_reg", f_learner = "high_d", w_learner = "linear",
+             loading_mat = loading_mat, intercept = FALSE,
+             delta = 0, lambda = "CV.min", verbose = TRUE)
+
+predict(fit)
+
+inf <- infer(fit, M = 50)
+inf$CI
 # ------------------- Example: p=5, L=2 -------------------
 
 set.seed(0)
@@ -94,14 +91,11 @@ Ylist <- list(Y1, Y2)
 loading_mat <- diag(p)[1:2, ]
 
 ## ------------------- Fit DRO regression -------------------
-fit <- fit_drlm_reg(
-  X_list = Xlist, y_list = Ylist,
-  loading_mat = loading_mat,
-  X0 = X0,
-  intercept = FALSE,
-  delta = 0,
-  lambda = "CV.min",
-  verbose = TRUE
+fit <- cgdro(
+  Xlist, Ylist, X0,
+  family = "drlm_reg", f_learner = "linear", w_learner = "linear",
+  loading_mat = t(loading_mat), intercept = FALSE,
+  delta = 0, lambda = "CV.min", verbose = TRUE
 )
 
 cat("\nOptimal weights across sources:\n")
@@ -111,14 +105,10 @@ cat("\nEstimated loading coefficients:\n")
 print(round(fit$loading_coef_, 4))
 
 ## prediction
-predict_drlm_reg(fit)
+predict(fit)
 
 ## ------------------- Inference -------------------
-inf <- infer_drlm_reg(
-  fit, M = 50, alpha = 0.05,
-  tau = 0.2, alpha_thres = 0.01, threshold = 0
-)
-
+inf <- infer(fit, M = 50)
 cat("\nUnion 95% CIs for loadings:\n")
 print(round(inf$CI, 4))
 
@@ -146,11 +136,9 @@ Y2 <- (X2^3 %*% b2) + sin(X2 %*% b2) + pmin(pmax(exp(X2 %*% b2),0),1) + rnorm(n2
 X0 <- MASS::mvrnorm(n0, rep(0,p), cov_source)
 Xlist <- list(X1, X2); Ylist <- list(Y1, Y2)
 
-fit <- fit_drol(Xlist, Ylist, X0,
-                outcome_learner = "xgb",
-                density_learner = "linear",
-                intercept = FALSE, seed = 1234)
-res <- predict_drol(fit, bias_correct = TRUE)         # CVXR optimization
+fit <- cgdro(Xlist, Ylist, X0,
+             family = "drol", f_learner = "xgb", w_learner = "linear", seed = 123)
+res <- predict(fit)
 res$weight_                                           # optimal weights
 head(res$pred)
 

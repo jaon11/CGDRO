@@ -6,44 +6,74 @@ source("R/Utility.R")
 # Fit (Optimistic Gradient Mirror Prox)
 # =====================================================================
 fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
-                         prob_learner = "xgb", density_learner = "linear",
-                         split = TRUE, intercept = FALSE,
-                         theta_init = NULL, gamma_init = NULL, eta_init = NULL,
-                         max_iter = 1000, tol = 1e-6, check_dual = FALSE,
-                         conv_dual = FALSE, verbose = FALSE,
-                         seed = 123) {
+                         f_learner = "xgb", w_learner = "linear",
+                         split = TRUE, max_iter = 1000, tol = 1e-6, check_dual = FALSE,
+                         verbose = FALSE, seed = 123) {
   set.seed(seed)
   # center per-domain; build X0
-  X_list <- lapply(X_list, function(Xi) { Xi <- as.matrix(Xi); sweep(Xi, 2, colMeans(Xi), "-") })
+  X_list <- lapply(X_list, function(Xi) { Xi <- as.matrix(Xi)})
   if (is.null(X0)) X0 <- do.call(rbind, X_list)
-  X0 <- as.matrix(X0); X0 <- sweep(X0, 2, colMeans(X0), "-")
+  X0 <- as.matrix(X0)
 
-  if (intercept) {
-    X_list <- lapply(X_list, function(Xi) cbind(1, Xi))
-    X0 <- cbind(1, X0)
-  }
   L <- length(X_list)
   d <- ncol(X_list[[1]])
   num_class <- length(levels(as.factor(y_list[[1]])))  # ensure factor levels
+
   proba_params_list   <- replicate(L, NULL, simplify = FALSE)
   density_params_list <- replicate(L, NULL, simplify = FALSE)
 
   # check arguments
-  check_arg_drlm_cls_fit(X_list, y_list, X0, prob_learner, density_learner,
-                         split, intercept, theta_init, gamma_init, eta_init,
-                         max_iter, tol, check_dual, conv_dual, verbose, seed)
+  check_arg_drlm_cls_fit(X_list, y_list, X0, f_learner, w_learner,
+                         split, max_iter, tol, check_dual, verbose, seed)
 
   # learners
-  pd <- .fit_proba_density(X_list, y_list, X0, prob_learner, density_learner,
-                           split, proba_params_list, density_params_list, seed)
-  mu_list <- .compute_mu_list(X_list, y_list, X0, pd$probaX_list, pd$probaX0_list, pd$omegaX_list, num_class, d)
+ # pd <- .fit_proba_density(X_list, y_list, X0, f_learner, w_learner,
+#                           split, proba_params_list, density_params_list, seed)
+
+  probaX_list <- list(); probaX0_list <- list(); omegaX_list <- list()
+  for (i in seq_len(L)) {
+    # learn f:
+    if (split){
+      split_info <- .split_data(X_list[[i]], y_list[[i]], seed = seed)
+      XA <- as.matrix(split_info$A$X); yA <- as.vector(split_info$A$y); XB <- as.matrix(split_info$B$X); yB <- as.vector(split_info$B$y)
+      modelA <- .learn_f(mode = 'cls', learner = f_learner)
+      modelA$fit(XA, yA)
+      modelB <- .learn_f(mode = 'cls', learner = f_learner)
+      modelB$fit(XB, yB)
+      fB <- modelA$predict_proba(XB)
+      fA <- modelB$predict_proba(XA)
+      probaX <- matrix(0, nrow = nrow(X_list[[i]]), ncol = num_class)
+      probaX[split_info$idx_A, ] <- fA
+      probaX[split_info$idx_B, ] <- fB
+      probaX0 <- (modelA$predict_proba(X0) + modelB$predict_proba(X0)) / 2
+    } else {
+      model <- .learn_f(mode = 'cls', learner = f_learner)
+      model$fit(X_list[[i]], y_list[[i]])
+      probaX <- model$predict_proba(X_list[[i]])
+      probaX0 <- model$predict_proba(X0)
+    }
+
+    # learn w:
+    model_w <- .learn_w(learner = w_learner)
+    model_w$fit(X_list[[i]],X0)
+    omegaX <- model_w$predict(X_list[[i]])
+
+
+    probaX_list[[i]] <- probaX
+    probaX0_list[[i]] <- probaX0
+    omegaX_list[[i]] <- omegaX
+  }
+
+
+
+  mu_list <- .compute_mu_list(X_list, y_list, X0, probaX_list, probaX0_list, omegaX_list, num_class, d)
 
   # init
   K <- num_class - 1
-  if (is.null(theta_init)) theta <- rep(0, d * K) else theta <- theta_init
-  if (is.null(gamma_init)) gamma <- rep(1/L, L) else gamma <- gamma_init
+  theta <- rep(0, d * K)
+  gamma <- rep(1/L, L)
   theta_bar <- theta; gamma_bar <- gamma
-  eta <- if (is.null(eta_init)) sqrt(2) else eta_init
+  eta <- sqrt(2)
   a <- 1.2; b <- log(L); Z_cumsum <- 0
   primal <- .compute_primal(theta, mu_list, X0, d)
   log_message <- character(0)
@@ -65,7 +95,7 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
     theta <- theta_curr; gamma <- gamma_curr
     primal_curr <- .compute_primal(theta, mu_list, X0, d)
 
-    if (iter %% 20 == 0) {
+    if (iter %% 50 == 0) {
       if (check_dual) {
         dual <- .compute_dual_value(theta, gamma, mu_list, X0, d)
         msg <- sprintf("Iter %d | Diff primal: %.6f | Dual gap: %.6f", iter, abs(primal - primal_curr), abs(primal - dual))
@@ -77,10 +107,7 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
     }
 
     if (abs(primal_curr - primal) < tol) {
-      if (conv_dual) {
-        dual <- .compute_dual_value(theta, gamma, mu_list, X0, d)
-        if (abs(primal_curr - dual) < 1e-3) { if (isTRUE(verbose)) cat("Converged (dual).\n"); break }
-      } else { if (isTRUE(verbose)) cat("Converged.\n"); break }
+      if (isTRUE(verbose)) cat("Converged.\n"); break
     }
     primal <- primal_curr
   }
@@ -88,10 +115,10 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
 
 
   list(
-    theta = theta_array, gamma = gamma, d = d, K = K, num_class = num_class,
-    X0 = X0, X_list = X_list, y_list = y_list, L = L, intercept = intercept,
-    probaX_list = pd$probaX_list, probaX0_list = pd$probaX0_list, omegaX_list = pd$omegaX_list,
-    mu_list = mu_list, log_message = log_message
+    coef_ = theta_array, weight_ = gamma, d = d, K = K, num_class = num_class,
+    X0 = X0, X_list = X_list, y_list = y_list, L = L,
+    probaX_list = probaX_list, probaX0_list = probaX0_list, omegaX_list = omegaX_list,
+    mu_list = mu_list, log_message = log_message, family = "drlm_cls"
   )
 }
 
@@ -99,7 +126,7 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
 # Predict on target
 # =====================================================================
 predict_proba_drlm_cls <- function(fit) {
-  theta_mat <- matrix(fit$theta, nrow = fit$d, byrow = FALSE)
+  theta_mat <- matrix(fit$coef_, nrow = fit$d, byrow = FALSE)
   logits <- fit$X0 %*% theta_mat
   logits_max <- apply(logits, 1, max)
   stable <- sweep(logits, 1, logits_max, "-")
@@ -124,7 +151,7 @@ infer_drlm_cls <- function(fit, index = 1, M = 200, alpha = 0.05,
   one_draw <- function() {
     mu_resample_list <- Map(function(mu, cov) mvrnorm(1, mu = mu, Sigma = cov),
                             fit$mu_list, caches$mu_cov_list)
-    rs <- .solve_resample(fit$theta, caches, mu_resample_list, fit$X0, fit$d, diag)
+    rs <- .solve_resample(fit$coef_, caches, mu_resample_list, fit$X0, fit$d, diag)
     V <- .compute_variance_resample(rs$gamma, caches)
     lb <- rs$theta - z * sqrt(diag(V))
     ub <- rs$theta + z * sqrt(diag(V))
@@ -156,7 +183,7 @@ infer_drlm_cls <- function(fit, index = 1, M = 200, alpha = 0.05,
     CI_ub_M = lapply(res, `[[`, "ub"),
     CI_lb_U = CI_lb_U,
     CI_ub_U = CI_ub_U,
-    CI_U = CI_Union_list,
+    CI = CI_Union_list,
     CI_index = CI_Union[index, , , drop = FALSE]
   )
 }
