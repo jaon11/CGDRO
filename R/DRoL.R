@@ -2,19 +2,58 @@
 ################################ DRoL ################################
 ######################################################################
 # =====================================================================
-# Fit (Closed-form Solution)
+# Fit (Closed-form Solution for DRoL)
 # =====================================================================
-#' @param seed splitting seed in outcome/density estimation (default: 123)
-fit_drol <- function(X_list, y_list, X0 = NULL,
-                     f_learner = "xgb",
-                     w_learner = "xgb",
-                     seed = 123) {
-  set.seed(seed)
+#' @param X_list List of feature matrices from each source (each element is n_l × d)
+#' @param y_list List of outcome vectors from each source (each element is length n_l)
+#' @param X0 Target feature matrix (N × d). If NULL, uses all source data combined.
+#' @param f_learner Outcome model learner. Options: "linear", "xgb", "xgb.cv", "high_d". Default is "xgb".
+#' @param w_learner Density ratio model learner. Options: "linear", "xgb", "xgb.cv", "kliep". Default is "xgb".
+#' @param bias_correct Whether to use bias-corrected estimator for Γ. Default is TRUE.
+#' @param priors Optional list with two elements: prior weight vector (length L) and radius (nonnegative scalar). Default is NULL (no prior).
+#' @param ridge Ridge regularization parameter (nonnegative scalar) for numerical stability. Default is 1e-8.
+#' @param solver Solver for the quadratic program. Options: "ECOS", "SCS". Default is "ECOS".
+#' @param seed Random seed for reproducibility. Default is 123.
+#' @return A list containing:
+#' \item{f_learner}{Outcome model learner used.}
+#' \item{w_learner}{Density ratio model learner used.}
+#' \item{L}{Number of source datasets.}
+#' \item{d}{Number of features.}
+#' \item{X0}{Target feature matrix used.}
+#' \item{pred_full_mat}{N × L matrix of predictions from each source's full outcome model on X0.}
+#' \item{Gamma_plug}{Plug-in estimator of Γ (L × L matrix).}
+#' \item{Gamma_corr}{Bias-corrected estimator of Γ (L × L matrix).}
+#' \item{weight_}{Optimal weight vector (length L).}
+#' \item{family}{String "drol" indicating the method used.}
+#' @example
+#' set.seed(0)
+#' L <- 2; p <- 5
+#' mean_source <- rep(0, p); cov_source <- diag(p)
+#' n1 <- 2000; n2 <- 2000; n0 <- 20000
+#' X1 <- MASS::mvrnorm(n1, mean_source, cov_source)
+#' X2 <- MASS::mvrnorm(n2, mean_source, cov_source)
+#' b1 <- c(1,-1,0.5,0,0) + rnorm(p,0,0.1)
+#' b2 <- c(1,0.5,-0.5,0,0) + rnorm(p,0,0.1)
+#' Y1 <- (X1^3 %*% b1) + sin(X1 %*% b1) + pmin(pmax(exp(X1 %*% b1),0),1) + rnorm(n1)
+#' Y2 <- (X2^3 %*% b2) + sin(X2 %*% b2) + pmin(pmax(exp(X2 %*% b2),0),1) + rnorm(n2)
+#' X0 <- MASS::mvrnorm(n0, rep(0,p), cov_source)
+#' Xlist <- list(X1, X2); Ylist <- list(Y1, Y2)
 
-  # center each source; keep y numeric
+#' fit <- cgdro(Xlist, Ylist, X0,
+#'              family = "drol", f_learner = "linear", w_learner = "linear", bias_correct = TRUE, priors=NULL, seed = 123)
+#' res <- predict(fit)
+#' fit$weight_                                           # optimal weights
+#' head(res)
+#' @export
+fit_drol <- function(X_list, y_list, X0 = NULL,
+                     f_learner = "xgb", w_learner = "xgb",
+                     bias_correct = TRUE, priors = NULL,
+                     ridge = 1e-8, solver = c("ECOS", "SCS"),
+                     seed = 123) {
+
+
   X_list <- lapply(X_list, function(Xi) { Xi <- as.matrix(Xi)})
   y_list <- lapply(y_list, function(yi) as.numeric(yi))
-
   L <- length(X_list)
   stopifnot(L == length(y_list))
   nls <- vapply(X_list, nrow, 1L)
@@ -29,7 +68,12 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
 
   # check arguments
   check_arg_drol_fit(X_list, y_list, X0,
-                     f_learner, w_learner, seed)
+                     f_learner, w_learner,
+                     bias_correct, priors,
+                     ridge, solver,
+                     seed)
+
+  set.seed(seed)
 
   # -------- Plug-in Γ (using full-source outcome models) --------
   source_full_models <- vector("list", L)
@@ -100,6 +144,79 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
   }
   Gamma_corr <- (t(Gamma_corr) + Gamma_corr) / 2  # symmetrize
 
+
+
+  # -------- Solve for weights (robust, with DCPError message & fallback) --------
+  if (!requireNamespace("CVXR", quietly = TRUE)) {
+    stop("Package 'CVXR' is required. Please install.packages('CVXR').")
+  }
+
+  solver <- match.arg(solver)
+  Gamma <- if (bias_correct) Gamma_corr else Gamma_plug
+  q <- CVXR::Variable(L)
+  G <- Gamma + ridge * diag(L)
+
+  constraints <- list(CVXR::sum_entries(q) == 1, q >= 0)
+  if (!is.null(priors)) {
+    q0  <- as.numeric(priors[[1]])
+    rho <- as.numeric(priors[[2]])
+    if (length(q0) != L) stop("prior_weight length must equal number of sources L.")
+    if (rho < 0) stop("rho must be nonnegative.")
+    constraints <- c(constraints, list(CVXR::p_norm(q - q0, 2) <= rho))
+  }
+
+  obj <- CVXR::Minimize(CVXR::quad_form(q, G))
+
+  # Wrap problem build + solve in tryCatch
+  q_opt <- tryCatch({
+    # Problem construction (can throw DCP errors if mis-specified)
+    prob <- tryCatch(
+      CVXR::Problem(obj, constraints),
+      error = function(e) {
+        if (grepl("DCP|DGP|DPP|disciplined", conditionMessage(e), ignore.case = TRUE)) {
+          message(" f_learner or w_learner is not well-fitted.")
+        }
+        stop(e)
+      }
+    )
+
+    # First attempt with user-specified solver
+    res <- try(CVXR::solve(prob, solver = solver), silent = TRUE)
+    if (inherits(res, "try-error") || isTRUE(res$status %in% c("infeasible", "unbounded", "solver_error"))) {
+      # Fallback to SCS
+      res <- try(CVXR::solve(prob, solver = "SCS"), silent = TRUE)
+    }
+
+    # If still failing, print message and fallback to uniform weights
+    if (inherits(res, "try-error") || isTRUE(res$status %in% c("infeasible", "unbounded", "solver_error"))) {
+      message(" f_learner or w_learner is not well-fitted.")
+      qo <- rep(1 / L, L)
+      return(qo)
+    }
+
+    # Extract and sanitize solution
+    qo <- as.numeric(res$getValue(q))
+    qo[is.na(qo)] <- 0
+    qo[qo < 0] <- 0
+    s <- sum(qo)
+    if (s <= 0) {
+      message(" f_learner or w_learner is not well-fitted.")
+      qo <- rep(1 / L, L)
+    } else {
+      qo <- qo / s
+    }
+    qo
+  }, error = function(e) {
+    # Catch any remaining errors (including DCP at solve-time)
+    if (grepl("DCP|DGP|DPP|disciplined", conditionMessage(e), ignore.case = TRUE)) {
+      message(" f_learner or w_learner is not well-fitted.")
+    }
+    # Safe fallback
+    rep(1 / L, L)
+  })
+
+  # q_opt is guaranteed to be a valid simplex weight vector
+
   list(
     # meta
     f_learner = f_learner,
@@ -112,6 +229,7 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
     pred_full_mat = pred_full_mat,
     Gamma_plug = Gamma_plug,
     Gamma_corr = Gamma_corr,
+    weight_ = q_opt,
     family = "drol"
   )
 }
@@ -119,49 +237,11 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
 # =====================================================================
 # Predict on target
 # =====================================================================
-
-predict_drol <- function(fit, bias_correct = TRUE, priors = NULL,
-                         ridge = 1e-8, solver = c("ECOS", "SCS")) {
-  if (!requireNamespace("CVXR", quietly = TRUE)) {
-    stop("Package 'CVXR' is required. Please install.packages('CVXR').")
-  }
-  # check arguments
-  check_arg_drol_pred(fit, bias_correct, priors, ridge, solver)
+#' @param fit A list returned by \code{fit_drol}.
+#' @return A numeric vector of predicted values on the target feature matrix X0.
+predict_drol <- function(fit) {
 
 
-  solver <- match.arg(solver)
-  Gamma <- if (bias_correct) fit$Gamma_corr else fit$Gamma_plug
-  L <- fit$L
-  P <- fit$pred_full_mat
-
-  q <- CVXR::Variable(L)
-  G <- Gamma + ridge * diag(L)
-
-  # CHANGED: use sum_entries() instead of sum()
-  constraints <- list(CVXR::sum_entries(q) == 1, q >= 0)
-  if (!is.null(priors)) {
-    q0  <- as.numeric(priors[[1]])
-    rho <- as.numeric(priors[[2]])
-    if (length(q0) != L) stop("prior_weight length must equal number of sources L.")
-    if (rho < 0) stop("rho must be nonnegative.")
-    constraints <- c(constraints, list(CVXR::p_norm(q - q0, 2) <= rho))
-  }
-
-  obj <- CVXR::Minimize(CVXR::quad_form(q, G))
-  prob <- CVXR::Problem(obj, constraints)
-
-  res <- try(CVXR::solve(prob, solver = solver), silent = TRUE)
-  if (inherits(res, "try-error") || isTRUE(res$status %in% c("infeasible", "unbounded"))) {
-    res <- CVXR::solve(prob, solver = "SCS")
-  }
-
-  q_opt <- as.numeric(res$getValue(q))
-  q_opt[is.na(q_opt)] <- 0
-  q_opt[q_opt < 0] <- 0
-  s <- sum(q_opt)
-  if (s <= 0) stop("Optimization failed: weights degenerate.")
-  q_opt <- q_opt / s
-
-  pred <- as.numeric(P %*% q_opt)
-  list(weight_ = q_opt, pred = pred, status = res$status, value = res$value)
+  pred <- as.numeric(fit$pred_full_mat %*% fit$weight)
+  pred
 }

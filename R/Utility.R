@@ -10,619 +10,34 @@ library(xgboost)
 library(glmnet)
 library(SIHR)
 library(MASS)
-
-
+library(densratio)
 # =====================================================================
 # Helpers
 # =====================================================================
 
-
-
-
-
-
-
-# ---- Probability learner (multi-class) using nnet::multinom ----
-.compute_proba_once <- function(X, y, X0, learner = "xgb", split = FALSE,
-                                proba_params = NULL, seed = 123) {
-  set.seed(seed)
-  y <- as.factor(y)  # required by multinom
-  num_class <- length(levels(y))
-
-  # train/predict wrappers
-  if (learner == "xgb.cv") {
-    train_model <- function(X, y) {
-      if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
-
-      # --- Preprocess ----------------------------------------------------------
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else data.matrix(X)
-
-      y_fac <- as.factor(y)
-      classes <- levels(y_fac)
-      y_int <- as.integer(y_fac) - 1L
-
-      # optional weight & seed (mirrors your style of reading from parent env)
-      sw   <- get0("sample_weight", ifnotfound = NULL, inherits = TRUE)
-      seed <- get0("seed",           ifnotfound = 1L,   inherits = TRUE)
-
-      dtrain <- xgboost::xgb.DMatrix(data = X_mat, label = y_int, weight = sw, missing = NA)
-
-      base_params <- list(
-        objective   = "multi:softprob",
-        eval_metric = "mlogloss",
-        num_class   = length(classes)
-      )
-
-      # --- Branch 1: use provided proba_params --------------------------------
-      pp <- get0("proba_params", ifnotfound = NULL, inherits = TRUE)
-
-      if (!is.null(pp)) {
-        if (!is.list(pp)) stop("`proba_params` must be a named list if provided.")
-        # pull nrounds out
-        nrounds <- if (!is.null(pp$nrounds)) as.integer(pp$nrounds) else 200L
-        pp$nrounds <- NULL
-
-        params <- utils::modifyList(base_params, pp)
-
-        m <- xgboost::xgb.train(
-          params  = params,
-          data    = dtrain,
-          nrounds = nrounds,
-          verbose = 0
-        )
-
-        return(list(model = m, classes = classes))
-      }
-
-      # --- Branch 2: 5-fold stratified CV to choose params --------------------
-      set.seed(seed)
-
-      # a sensible default grid (adjust as you like)
-      param_grid <- expand.grid(
-        eta               = c(0.05, 0.1, 0.2),
-        max_depth         = c(4, 6, 8),
-        min_child_weight  = c(1, 3),
-        subsample         = c(0.8, 1.0),
-        colsample_bytree  = c(0.8, 1.0),
-        lambda            = c(1, 5),
-        alpha             = c(0, 1),
-        KEEP.OUT.ATTRS    = FALSE,
-        stringsAsFactors  = FALSE
-      )
-
-      best_score      <- Inf
-      best_nrounds    <- 200L
-      best_params_row <- NULL
-
-      # We’ll let early stopping pick nrounds; run up to max_nrounds
-      max_nrounds <- 1000L
-      early_stop  <- 50L
-
-      for (i in seq_len(nrow(param_grid))) {
-        row <- as.list(param_grid[i, , drop = FALSE])
-        params_try <- utils::modifyList(base_params, row)
-
-        cv <- xgboost::xgb.cv(
-          params                = params_try,
-          data                  = dtrain,
-          nrounds               = max_nrounds,
-          nfold                 = 5,
-          stratified            = TRUE,
-          early_stopping_rounds = early_stop,
-          verbose               = 0,
-          maximize              = FALSE,   # lower mlogloss is better
-          showsd                = TRUE,
-          seed                  = seed
-        )
-
-        # xgb.cv stores the best logloss in evaluation_log; use cv$best_iteration
-        cv_best_iter  <- cv$best_iteration
-        cv_best_score <- cv$evaluation_log$test_mlogloss_mean[cv_best_iter]
-
-        if (!is.na(cv_best_score) && cv_best_score < best_score) {
-          best_score      <- cv_best_score
-          best_nrounds    <- cv_best_iter
-          best_params_row <- row
-        }
-      }
-
-      if (is.null(best_params_row)) {
-        # fallback (shouldn’t happen unless data is degenerate)
-        best_params_row <- as.list(param_grid[1, , drop = FALSE])
-        best_nrounds    <- 200L
-      }
-
-      final_params <- utils::modifyList(base_params, best_params_row)
-
-      m <- xgboost::xgb.train(
-        params  = final_params,
-        data    = dtrain,
-        nrounds = best_nrounds,
-        verbose = 0
-      )
-
-      list(model = m, classes = classes)
-    }
-
-    predict_prob <- function(m, X) {
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else data.matrix(X)
-
-      pred <- predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA))
-      K <- length(m$classes)
-      probs <- matrix(pred, ncol = K, byrow = TRUE)
-      colnames(probs) <- m$classes
-      probs
-    }
-  }else if (learner == "xgb"){
-    # ---------- Multiclass XGBoost (no CV), same style as your xib ----------
-    # train_model(): pull nrounds out of params, modifyList with base_params, train
-    # predict_prob(): return n x K probability matrix (cols named by class levels)
-
-    train_model <- function(X, y, params = NULL) {
-      if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
-
-      # 1) nrounds default + strip from params
-      nrounds <- if (!is.null(params) && !is.null(params$nrounds)) params$nrounds else 200L
-      params_no_nrounds <- params
-      if (!is.null(params_no_nrounds)) params_no_nrounds$nrounds <- NULL
-      if (!is.null(params_no_nrounds) && !is.list(params_no_nrounds)) {
-        stop("`params` must be a named list when provided.")
-      }
-
-      # 2) targets -> integers 0..K-1 + class levels
-      y_fac <- as.factor(y)
-      classes <- levels(y_fac)
-      y_int <- as.integer(y_fac) - 1L
-
-      # 3) base params + user overrides
-      base_params <- list(
-        objective   = "multi:softprob",
-        eval_metric = "mlogloss",
-        num_class   = length(classes)
-      )
-      if (!is.null(params_no_nrounds)) {
-        base_params <- utils::modifyList(base_params, params_no_nrounds)
-      }
-
-      # 4) data -> DMatrix (optionally with sample weights)
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else {
-        data.matrix(X)
-      }
-      sw <- get0("sample_weight", ifnotfound = NULL, inherits = TRUE)
-      dtrain <- xgboost::xgb.DMatrix(data = X_mat, label = y_int, weight = sw, missing = NA)
-
-      # 5) train
-      m <- xgboost::xgb.train(
-        params  = base_params,
-        data    = dtrain,
-        nrounds = nrounds,
-        verbose = 0
-      )
-
-      list(
-        model   = m,
-        params  = base_params,
-        nrounds = nrounds,
-        classes = classes
-      )
-    }
-
-    predict_prob <- function(m, X) {
-      if (is.null(m$model) || is.null(m$classes)) {
-        stop("`m` must be the object returned by train_model() with $model and $classes.")
-      }
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else {
-        data.matrix(X)
-      }
-      raw <- predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA))
-      K <- length(m$classes)
-      probs <- matrix(raw, ncol = K, byrow = TRUE)
-      colnames(probs) <- m$classes
-      probs
-    }
-
-  }else if (learner == "linear"){
-    train_model <- function(X, y) {
-      df <- data.frame(y = y, X)
-      # you can pass decay / maxit in proba_params if desired
-      args <- c(list(formula = y ~ ., data = df, trace = FALSE, MaxNWts = 100000),
-                proba_params)
-      do.call(multinom, args)
-    }
-    predict_prob <- function(m, X) {
-      predict(m, newdata = data.frame(X), type = "probs")
-    }
-
-  }else {
-    stop("Unsupported prob_learner: use learner = 'nnet' for multi-class.")
-  }
-
-  if (split) {
-    n <- nrow(X)
-    indA <- sample(n, floor(n/2))
-    indB <- setdiff(seq_len(n), indA)
-
-    mA <- train_model(X[indA, ], y[indA])
-    mB <- train_model(X[indB, ], y[indB])
-
-    predAB <- predict_prob(mA, X[indB, ])  # on B using A
-    predBA <- predict_prob(mB, X[indA, ])  # on A using B
-    predX0 <- (predict_prob(mA, X0) + predict_prob(mB, X0)) / 2
-
-    predX <- matrix(0, nrow = n, ncol = num_class)
-    predX[indA, ] <- predBA
-    predX[indB, ] <- predAB
-  } else {
-    m <- train_model(X, y)
-    predX  <- predict_prob(m, X)
-    predX0 <- predict_prob(m, X0)
-  }
-
-  # ensure matrix (n, C)
-  predX  <- as.matrix(predX)
-  predX0 <- as.matrix(predX0)
-
-  # Clip probs to avoid extremes
-  predX  <- pmin(pmax(predX, 1e-6), 1 - 1e-6)
-  predX0 <- pmin(pmax(predX0, 1e-6), 1 - 1e-6)
-
-  list(predX = predX, predX0 = predX0)
-}
-
-# ---- Density-ratio learner (binary) via glmnet (binomial) ----
-.compute_density_once <- function(X, X0, learner = "linear", split = FALSE,
-                                  density_params = NULL, seed = 123) {
-  set.seed(seed)
-  if (learner == "linear") {
-    train_model <- function(X, y) {
-      # y should be numeric 0/1
-      cv.glmnet(X, y, family = "binomial", type.measure = "deviance")
-    }
-    predict_prob <- function(m, X) as.numeric(predict(m, X, s = "lambda.min", type = "response"))
-  } else if (learner == "xgb") {
-    # ---------- Multiclass XGBoost (no CV), same style as your xib ----------
-    # train_model(): pull nrounds out of params, modifyList with base_params, train
-    # predict_prob(): return n x K probability matrix (cols named by class levels)
-
-    train_model <- function(X, y, params = NULL) {
-      if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else data.matrix(X)
-
-      # Binary labels -> {0,1}
-      if (is.factor(y) || is.character(y) || is.logical(y)) y <- as.integer(as.factor(y)) - 1L
-      y <- as.numeric(y)
-      if (!all(y %in% c(0, 1))) stop("y must be binary (0/1, logical, or two-level factor).")
-
-      # Pull nrounds out of params (default 200), and don't keep it in the params list
-      nrounds <- if (!is.null(params) && !is.null(params$nrounds)) params$nrounds else 200
-      # Base params without nrounds
-      base_params <- list(objective = "binary:logistic", eval_metric = "logloss")
-      if (!is.null(params)) {
-        params_no_nrounds <- params
-        params_no_nrounds$nrounds <- NULL
-        base_params <- modifyList(base_params, params_no_nrounds)
-      }
-
-      dtrain <- xgboost::xgb.DMatrix(data = as.matrix(X_mat), label = y)
-      m <- xgboost::xgb.train(params = base_params, data = dtrain,
-                              nrounds = nrounds, verbose = 0)
-
-      list(
-        model   = m,
-        params  = base_params,
-        nrounds = nrounds
-      )
-    }
-
-    predict_prob <- function(m, X) {
-      if (is.null(m$model)) {
-        stop("`m` must be the object returned by train_model() with $model.")
-      }
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else {
-        data.matrix(X)
-      }
-      probs <- predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA))
-      probs
-    }
-
-
-  }else if (learner == "xgb.cv") {
-    train_model <- function(X, y, params = NULL) {
-      if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
-
-      # --- Preprocess ----------------------------------------------------------
-      # Encode X like glm (handles factors/characters)
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else data.matrix(X)
-
-      # Binary labels -> {0,1}
-      if (is.factor(y) || is.character(y) || is.logical(y)) y <- as.integer(as.factor(y)) - 1L
-      y <- as.numeric(y)
-      if (!all(y %in% c(0, 1))) stop("y must be binary (0/1, logical, or two-level factor).")
-
-      # Optional weight & seed
-      sw   <- get0("sample_weight", ifnotfound = NULL, inherits = TRUE)
-      seed <- get0("seed",           ifnotfound = 1L,   inherits = TRUE)
-
-      dtrain <- xgboost::xgb.DMatrix(data = X_mat, label = y, weight = sw, missing = NA)
-
-      # --- Base params + user overrides (pull nrounds out) ---------------------
-      nrounds <- if (!is.null(params) && !is.null(params$nrounds)) params$nrounds else 200L
-      params_no_nrounds <- params
-      if (!is.null(params_no_nrounds)) {
-        if (!is.list(params_no_nrounds)) stop("`params` must be a named list when provided.")
-        params_no_nrounds$nrounds <- NULL
-      }
-
-      base_params <- list(objective = "binary:logistic", eval_metric = "logloss")
-      if (!is.null(params_no_nrounds)) {
-        base_params <- utils::modifyList(base_params, params_no_nrounds)
-      }
-
-      # --- Branch 1: direct training if params provided ------------------------
-      if (!is.null(params)) {
-        m <- xgboost::xgb.train(
-          params  = base_params,
-          data    = dtrain,
-          nrounds = nrounds,
-          verbose = 0
-        )
-        return(list(model = m, params = base_params, nrounds = nrounds))
-      }
-
-      # --- Branch 2: 5-fold stratified CV (when params == NULL) ----------------
-      set.seed(seed)
-
-      # A compact but useful grid (tune as needed)
-      param_grid <- expand.grid(
-        eta               = c(0.05, 0.1, 0.2),
-        max_depth         = c(3, 5, 7),
-        min_child_weight  = c(1, 3),
-        subsample         = c(0.8, 1.0),
-        colsample_bytree  = c(0.8, 1.0),
-        lambda            = c(1, 5),
-        alpha             = c(0, 1),
-        KEEP.OUT.ATTRS    = FALSE,
-        stringsAsFactors  = FALSE
-      )
-
-      best_score      <- Inf
-      best_nrounds    <- 200L
-      best_params_row <- NULL
-
-      max_nrounds <- 1000L
-      early_stop  <- 50L
-
-      for (i in seq_len(nrow(param_grid))) {
-        row <- as.list(param_grid[i, , drop = FALSE])
-        params_try <- utils::modifyList(base_params, row)
-
-        cv <- xgboost::xgb.cv(
-          params                = params_try,
-          data                  = dtrain,
-          nrounds               = max_nrounds,
-          nfold                 = 5,
-          stratified            = TRUE,
-          early_stopping_rounds = early_stop,
-          verbose               = 0,
-          maximize              = FALSE,  # minimize logloss
-          showsd                = TRUE,
-          seed                  = seed
-        )
-
-        cv_best_iter <- cv$best_iteration
-        if (is.null(cv_best_iter) || is.na(cv_best_iter) || cv_best_iter <= 0) {
-          cv_best_iter <- nrow(cv$evaluation_log)
-        }
-        cv_best_score <- cv$evaluation_log$test_logloss_mean[cv_best_iter]
-
-        if (!is.na(cv_best_score) && cv_best_score < best_score) {
-          best_score      <- cv_best_score
-          best_nrounds    <- cv_best_iter
-          best_params_row <- row
-        }
-      }
-
-      if (is.null(best_params_row)) {
-        best_params_row <- as.list(param_grid[1, , drop = FALSE])
-        best_nrounds    <- 200L
-      }
-
-      final_params <- utils::modifyList(base_params, best_params_row)
-
-      m <- xgboost::xgb.train(
-        params  = final_params,
-        data    = dtrain,
-        nrounds = best_nrounds,
-        verbose = 0
-      )
-
-      list(model = m, params = final_params, nrounds = best_nrounds)
-    }
-
-    predict_prob <- function(m, X) {
-      if (is.null(m$model)) stop("`m` must be the object returned by train_model() with $model.")
-      X_mat <- if (is.data.frame(X)) {
-        mm <- stats::model.matrix(~ . - 1, data = X); storage.mode(mm) <- "double"; mm
-      } else data.matrix(X)
-      as.numeric(predict(m$model, xgboost::xgb.DMatrix(X_mat, missing = NA)))
-    }
-
-
-  }else stop("Unknown density_learner: ", learner)
-
-  if (split) {
-    n <- nrow(X)
-    indA <- sample(n, floor(n/2))
-    indB <- setdiff(seq_len(n), indA)
-
-    XA <- rbind(X[indA, ], X0); yA <- c(rep(0, length(indA)), rep(1, nrow(X0)))
-    XB <- rbind(X[indB, ], X0); yB <- c(rep(0, length(indB)), rep(1, nrow(X0)))
-
-    mA <- train_model(XA, yA); mB <- train_model(XB, yB)
-
-    pAB <- predict_prob(mA, X[indB, ])
-    pBA <- predict_prob(mB, X[indA, ])
-
-    omegaB <- (pAB/(1 - pAB)) * (length(indA)/nrow(X0))
-    omegaA <- (pBA/(1 - pBA)) * (length(indB)/nrow(X0))
-    omegaX <- numeric(n); omegaX[indA] <- omegaA; omegaX[indB] <- omegaB
-  } else {
-    Xc <- rbind(X, X0); yc <- c(rep(0, nrow(X)), rep(1, nrow(X0)))
-    m <- train_model(Xc, yc)
-    p <- predict_prob(m, X)
-    omegaX <- (p/(1 - p)) * (nrow(X)/nrow(X0))
-  }
-
-  pmin(pmax(omegaX, 1e-3), 1e3)
-}
-
-# ---- Fit probas/densities for all sources ----
-.fit_proba_density <- function(X_list, y_list, X0, prob_learner, density_learner,
-                               split, proba_params_list, density_params_list, seed=123) {
-  L <- length(X_list)
-  probaX_list  <- vector("list", L)
-  probaX0_list <- vector("list", L)
-  omegaX_list  <- vector("list", L)
-  for (l in seq_len(L)) {
-    pr <- .compute_proba_once(X_list[[l]], y_list[[l]], X0,
-                              learner = prob_learner, split = split,
-                              proba_params = proba_params_list[[l]], seed = seed)
-    probaX_list[[l]]  <- pr$predX         # (n_l, C)
-    probaX0_list[[l]] <- pr$predX0        # (n0, C)
-  }
-  for (l in seq_len(L)) {
-    omegaX_list[[l]] <- .compute_density_once(X_list[[l]], X0,
-                                              learner = density_learner, split = split,
-                                              density_params = density_params_list[[l]], seed = seed)
-  }
-  list(probaX_list = probaX_list, probaX0_list = probaX0_list, omegaX_list = omegaX_list)
-}
-
-
-
-.train_lasso <- function(X, y, intercept = FALSE, lambda_val = NULL, max_iter = 1e5) {
-  X <- as.matrix(X); y <- as.numeric(y)
-  X_aug <- if (intercept) cbind(1, X) else X
-
-  if (is.null(lambda_val) || identical(lambda_val, "CV.min")) {
-    cvfit <- cv.glmnet(X_aug, y, family = "gaussian",
-                       alpha = 1, intercept = FALSE, standardize = FALSE)
-    as.numeric(predict(cvfit, type = "coefficients", s = "lambda.min"))[-1]
-  } else if (identical(lambda_val, "CV")) {
-    cvfit <- cv.glmnet(X_aug, y, family = "gaussian",
-                       alpha = 1, intercept = FALSE, standardize = FALSE)
-    lam <- cvfit$lambda.1se
-    as.numeric(predict(cvfit, type = "coefficients", s = lam))[-1]
-  } else {
-    fit <- glmnet(X_aug, y, family = "gaussian", alpha = 1,
-                  lambda = lambda_val, intercept = FALSE,
-                  standardize = FALSE, maxit = max_iter)
-    as.numeric(coef(fit))[-1]
-  }
-}
-
-
-
-# --------------------------- Outcome Learners ---------------------------
-
-.fit_outcome <- function(X, y, learner = "xgb", params = NULL, sample_weight = NULL) {
-  if (is.null(sample_weight)) sample_weight <- rep(1, length(y))
-  X <- as.matrix(X); y <- as.numeric(y)
-
-  if (learner == "linear") {
-    df <- data.frame(y = y, X)
-    m <- lm(y ~ ., data = df, weights = sample_weight)
-    pred <- function(X) as.numeric(predict(m, newdata = data.frame(X)))
-    return(list(predict = pred, model = m))
-  }
-
-  if (learner == "xgb") {
-    if (!requireNamespace("xgboost", quietly = TRUE)) stop("Need xgboost")
-    base_params <- list(
-      objective = "reg:squarederror",
-      eval_metric = "rmse"
-    )
-    if (!is.null(params)) base_params <- modifyList(base_params, params)
-
-    dtrain <- xgboost::xgb.DMatrix(data = X, label = y, weight = sample_weight)
-    nrounds <- if (!is.null(params$nrounds)) params$nrounds else 200
-
-    m <- xgboost::xgb.train(params = base_params, data = dtrain,
-                            nrounds = nrounds, verbose = 0)
-    pred <- function(X) as.numeric(predict(m, xgboost::xgb.DMatrix(as.matrix(X))))
-    return(list(predict = pred, model = m))
-  }
-
-  stop("Unknown outcome learner: ", learner)
-}
-
-# --------------------------- Density Learners ---------------------------
-
-.fit_density <- function(X, X_target, learner = "xgb", params = NULL) {
-  X <- as.matrix(X); X_target <- as.matrix(X_target)
-  ratio <- nrow(X) / nrow(X_target)
-
-  Xc <- rbind(X, X_target)
-  yc <- c(rep(0, nrow(X)), rep(1, nrow(X_target)))
-
-  if (learner == "linear") {
-    df <- data.frame(y = yc, Xc)
-    m <- glm(y ~ ., data = df, family = binomial())
-    pred <- function(X) {
-      p1 <- as.numeric(predict(m, newdata = data.frame(X), type = "response"))
-      p1 <- pmin(pmax(p1, 1e-8), 1 - 1e-8)
-      (p1 / (1 - p1)) * ratio
-    }
-    return(list(predict = pred, model = m, sample_ratio = ratio))
-  }
-
-  if (learner == "xgb") {
-    if (!requireNamespace("xgboost", quietly = TRUE)) {
-      stop("Density learner 'xgb' requested but package 'xgboost' is not installed.")
-    }
-    # Pull nrounds out of params (default 200), and don't keep it in the params list
-    nrounds <- if (!is.null(params) && !is.null(params$nrounds)) params$nrounds else 200
-    # Base params without nrounds
-    base_params <- list(objective = "binary:logistic", eval_metric = "logloss")
-    if (!is.null(params)) {
-      params_no_nrounds <- params
-      params_no_nrounds$nrounds <- NULL
-      base_params <- modifyList(base_params, params_no_nrounds)
-    }
-
-    dtrain <- xgboost::xgb.DMatrix(data = as.matrix(Xc), label = yc)
-    m <- xgboost::xgb.train(params = base_params, data = dtrain,
-                            nrounds = nrounds, verbose = 0)
-    pred <- function(X) {
-      p1 <- as.numeric(predict(m, xgboost::xgb.DMatrix(as.matrix(X))))
-      p1 <- pmin(pmax(p1, 1e-8), 1 - 1e-8)
-      (p1 / (1 - p1)) * ratio
-    }
-    return(list(predict = pred, model = m, sample_ratio = ratio))
-  }
-
-  stop("Unknown density learner: ", learner)
-}
-
-
 # ================================================================
 # Unified learners: learn_f (outcome) and learn_w (density ratio)
 # ================================================================
+train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
+  if(is.null(lambda)) lambda = 'CV.min'
+  p = ncol(X)
+  htheta <- if (lambda == "CV.min") {
+    outLas <- cv.glmnet(X, y, family = "gaussian", alpha = 1,
+                        intercept = intercept, standardize = T)
+    as.vector(coef(outLas, s = outLas$lambda.min))
+  } else if (lambda == "CV") {
+    outLas <- cv.glmnet(X, y, family = "gaussian", alpha = 1,
+                        intercept = intercept, standardize = T)
+    as.vector(coef(outLas, s = outLas$lambda.1se))
+  } else {
+    outLas <- glmnet(X, y, family = "gaussian", alpha = 1,
+                     intercept = intercept, standardize = T)
+    as.vector(coef(outLas, s = lambda))
+  }
+  if(intercept==FALSE) htheta = htheta[2:(p+1)]
 
+  return(list(lasso.est = htheta))
+}
 # ---- Small utilities ----------------------------------------------------------
 .clip01 <- function(p, lo = 1e-8, hi = 1 - 1e-8) pmin(pmax(p, lo), hi)
 
@@ -776,73 +191,83 @@ library(MASS)
 
     # ---------------- High-dimensional Lasso (glmnet) ----------------
     if (learner == "high_d") {
-      if (!requireNamespace("glmnet", quietly = TRUE))
-        stop("Need package 'glmnet' for learner = 'high_d'.")
+  if (!requireNamespace("glmnet", quietly = TRUE))
+    stop("Need package 'glmnet' for learner = 'high_d'.")
 
-      model <- NULL          # coefficient vector aligned with (possibly) augmented X
-      p_fit <- NULL          # ncol used at fit time (after augmentation)
-      used_intercept <- FALSE
+  # Stored state
+  model <- NULL        # list(beta = numeric p_c, intercept = TRUE/FALSE)
+  p_fit <- NULL        # ncol of raw features after .mm_if_needed
+  p_fit_c <- NULL      # ncol of constructed design Xc (with or without intercept col)
+  used_intercept <- FALSE
 
-      fit <- function(X, y, intercept = FALSE) {
-        Xm <- .mm_if_needed(X)
-        if (intercept) Xm <- cbind(1, Xm)        # your rule
-        y  <- as.numeric(y)
 
-        if (is.null(lambda_val) || identical(lambda_val, "CV.min")) {
-          cvfit <- glmnet::cv.glmnet(
-            x = Xm, y = y, family = "gaussian",
-            alpha = 1, intercept = FALSE, standardize = FALSE,
-            weights = sample_weight
-          )
-          beta <- as.numeric(stats::predict(cvfit, type = "coefficients", s = "lambda.min"))[-1]
 
-        } else if (identical(lambda_val, "CV")) {
-          cvfit <- glmnet::cv.glmnet(
-            x = Xm, y = y, family = "gaussian",
-            alpha = 1, intercept = FALSE, standardize = FALSE,
-            weights = sample_weight
-          )
-          lam  <- cvfit$lambda.1se
-          beta <- as.numeric(stats::predict(cvfit, type = "coefficients", s = lam))[-1]
+  fit <- function(X, y, intercept = FALSE) {
+    # Construct the exact design we will learn on
+    Xc <- X
+    y  <- as.numeric(y)
 
-        } else {
-          # numeric (scalar or vector) lambda
-          fit0 <- glmnet::glmnet(
-            x = Xm, y = y, family = "gaussian",
-            alpha = 1, lambda = lambda_val,
-            intercept = FALSE, standardize = FALSE,
-            weights = sample_weight
-          )
-          # if lambda_val has length > 1, take the first by default
-          s_use <- if (length(lambda_val) == 1) lambda_val else lambda_val[1]
-          beta  <- as.numeric(stats::coef(fit0, s = s_use))[-1]
-        }
-
-        model <<- list(beta = beta, intercept = intercept)
-        p_fit <<- ncol(Xm)
-        used_intercept <<- intercept
-        invisible(NULL)
-      }
-
-      predict <- function(Xnew) {
-        if (is.null(model)) stop("Call $fit(X, y, intercept=...) before predicting.")
-        Xn <- .mm_if_needed(Xnew)
-        if (model$intercept) Xn <- cbind(1, Xn)
-        if (ncol(Xn) != p_fit)
-          stop(sprintf("Column mismatch: trained with p=%d, got p=%d.", p_fit, ncol(Xn)))
-        as.numeric(Xn %*% model$beta)
-      }
-
-      return(list(
-        fit = fit,
-        predict = predict,
-        model = function() model,
-        coef = function() model$beta,
-        mode = "reg",
-        lambda_val = function() lambda_val,
-        intercept_used = function() used_intercept
-      ))
+    # glmnet handles NO internal intercept; our first column (if any) is the intercept column.
+    if (is.null(lambda_val) || identical(lambda_val, "CV.min")) {
+      cvfit <- glmnet::cv.glmnet(
+        x = Xc, y = y, family = "gaussian",
+        alpha = 1, intercept = FALSE, standardize = TRUE,
+        weights = sample_weight
+      )
+      beta <- as.numeric(stats::coef(cvfit, s = "lambda.min"))[-1]  # aligned to Xc columns directly
+    } else if (identical(lambda_val, "CV")) {
+      cvfit <- glmnet::cv.glmnet(
+        x = Xc, y = y, family = "gaussian",
+        alpha = 1, intercept = FALSE, standardize = TRUE,
+        weights = sample_weight
+      )
+      lam  <- cvfit$lambda.1se
+      beta <- as.numeric(stats::coef(cvfit, s = lam))[-1]
+    } else {
+      fit0 <- glmnet::glmnet(
+        x = Xc, y = y, family = "gaussian",
+        alpha = 1, lambda = lambda_val,
+        intercept = FALSE, standardize = TRUE,
+        weights = sample_weight
+      )
+      s_use <- if (length(lambda_val) == 1) lambda_val else lambda_val[1]
+      beta  <- as.numeric(stats::coef(fit0, s = s_use))[-1]
     }
+
+    # Persist state
+    model <<- list(beta = beta, intercept = intercept)
+    p_fit <<- ncol(.mm_if_needed(X))
+    p_fit_c <<- ncol(Xc)                  # this is the length of beta
+    used_intercept <<- intercept
+    invisible(NULL)
+  }
+
+  predict <- function(Xnew) {
+    if (is.null(model)) stop("Call $fit(X, y, intercept=...) before predicting.")
+    Xc_new <- Xnew
+    if (ncol(Xc_new) != p_fit_c) {
+      stop(sprintf("Column mismatch: trained with p_c=%d, got p_c=%d.", p_fit_c, ncol(Xc_new)))
+    }
+    as.numeric(Xc_new %*% model$beta)
+  }
+
+  return(list(
+    fit = fit,
+    predict = predict,
+    # coef() returns EXACT beta_init compatible with Xc %*% beta_init
+    coef = function() {
+      if (is.null(model)) stop("Model not fit.")
+      model$beta
+    },
+    # convenience getters
+    model = function() model,
+    mode = "reg",
+    p_fit = function() p_fit,         # raw feature count after .mm_if_needed
+    p_fit_c = function() p_fit_c,     # design-column count (matches length of coef)
+    intercept_used = function() used_intercept
+  ))
+}
+
 
   } else {
     # ---------------- Classification ----------------
@@ -957,9 +382,9 @@ library(MASS)
 # =====================================================================
 # 2) Density-ratio learner  w(x) = p0(x)/p(x)
 # =====================================================================
-.learn_w <- function(learner = c("linear", "xgb", "xgb.cv"),
-                    params = NULL,
-                    seed = 123) {
+.learn_w <- function(learner = c("linear", "xgb", "xgb.cv", "kliep"),
+                     params = NULL,
+                     seed = 123) {
   learner <- match.arg(learner)
   set.seed(seed)
 
@@ -968,9 +393,80 @@ library(MASS)
   params_used <- NULL
   nrounds_used <- NA_integer_
 
+  # ---------- helpers ----------
+  as_matrix2d <- function(M) {
+    M <- .mm_if_needed(M)
+    if (is.null(dim(M))) M <- matrix(M, ncol = 1L)
+    storage.mode(M) <- "double"
+    M
+  }
+
+  # ---------- fit ----------
   fit <- function(X, X_target) {
-    X  <- .mm_if_needed(X)
-    X0 <- .mm_if_needed(X_target)
+    X  <- as_matrix2d(X)
+    X0 <- as_matrix2d(X_target)
+
+    if (learner == "kliep") {
+      if (!requireNamespace("densratio", quietly = TRUE))
+        stop("Need package 'densratio' for learn_w(learner = 'kliep').")
+
+      ratio <<- 1.0  # KLIEP directly estimates p0/p
+
+      # Optional args
+      sigma_arg <- if (!is.null(params) && !is.null(params$sigma)) params$sigma else NULL
+      fold_arg  <- if (!is.null(params) && !is.null(params$fold))  as.integer(params$fold) else 5L
+
+      # densratio::KLIEP expects numerator = target (X0), denominator = source (X)
+      kl <- try(densratio::KLIEP(x1 = X0, x2 = X, sigma = sigma_arg, fold = fold_arg, verbose = FALSE),
+                silent = TRUE)
+
+      if (!inherits(kl, "try-error")) {
+        # Store a simple adapter so predict() can always call model$predict_fn(...)
+        model <<- list(
+          method = "kliep_densratio",
+          predict_fn = function(Xnew) {
+            Xn <- as_matrix2d(Xnew)
+            w  <- as.numeric(kl$compute_density_ratio(Xn))
+            pmin(pmax(w, 1e-3), 1e3)
+          }
+        )
+        params_used <<- list(method = "KLIEP", backend = "densratio",
+                             sigma = tryCatch(kl$sigma, error = function(e) NA_real_),
+                             fold = fold_arg)
+        nrounds_used <<- NA_integer_
+        return(invisible(NULL))
+      }
+
+      # Fallback to densityratio::kliep if densratio failed
+      if (requireNamespace("densityratio", quietly = TRUE)) {
+        kr <- try(densityratio::kliep(x_numer = X0, x_denom = X, centers = "kmeans"), silent = TRUE)
+        if (!inherits(kr, "try-error")) {
+          model <<- list(
+            method = "kliep_densityratio",
+            predict_fn = function(Xnew) {
+              Xn <- as_matrix2d(Xnew)
+              w  <- as.numeric(predict(kr, Xn))
+              pmin(pmax(w, 1e-3), 1e3)
+            }
+          )
+          params_used <<- list(method = "KLIEP", backend = "densityratio")
+          nrounds_used <<- NA_integer_
+          return(invisible(NULL))
+        }
+      }
+
+      # Last-resort stub (uniform weights at predict time)
+      warning("KLIEP fitting failed in both densratio and densityratio; falling back to uniform weights.")
+      model <<- list(
+        method = "kliep_uniform_stub",
+        predict_fn = function(Xnew) rep(1, nrow(as_matrix2d(Xnew)))
+      )
+      params_used <<- list(method = "KLIEP", backend = "stub")
+      nrounds_used <<- NA_integer_
+      return(invisible(NULL))
+    }
+
+    # -------- existing learners --------
     ratio <<- nrow(X) / nrow(X0)
 
     Xc <- rbind(X, X0)
@@ -1006,14 +502,25 @@ library(MASS)
     invisible(NULL)
   }
 
+  # ---------- predict ----------
   predict <- function(Xnew) {
     if (is.null(model)) stop("Call $fit(X, X_target) before predicting ratios.")
-    Xn <- .mm_if_needed(Xnew)
-    p1 <- if (inherits(model, "cv.glmnet")) {
-      as.numeric(stats::predict(model, Xn, s = "lambda.min", type = "response"))
-    } else {
-      as.numeric(stats::predict(model, newdata = Xn, missing = NA))  # generic -> xgb method
+
+    # If the model exposes a predict_fn (KLIEP adapters), just use it
+    if (is.list(model) && !is.null(model$predict_fn)) {
+      return(model$predict_fn(Xnew))
     }
+
+    Xn <- as_matrix2d(Xnew)
+
+    if (inherits(model, "cv.glmnet")) {
+      p1 <- as.numeric(stats::predict(model, Xn, s = "lambda.min", type = "response"))
+    } else if (inherits(model, "xgb.Booster")) {
+      p1 <- as.numeric(stats::predict(model, newdata = Xn, missing = NA))
+    } else {
+      stop("Unknown model class in .learn_w()$model.")
+    }
+
     p1 <- .clip01(p1, 1e-8, 1 - 1e-8)
     w  <- (p1 / (1 - p1)) * ratio
     pmin(pmax(w, 1e-3), 1e3)
@@ -1255,6 +762,41 @@ library(MASS)
   w / s
 }
 
+opt_weight<-function(Gamma,delta=0){
+  ## Purpose: Compute Ridge-type weight vector
+  ## Returns: weight:  the minimizer \eqn{\gamma}
+  ##          reward:  the value of penalized reward
+  ## ----------------------------------------------------
+  ## Arguments: Gamma: regression covariance matrix, of dimension \eqn{L} x \eqn{L}
+  ##            delta the ridge penalty level, non-positive.
+  ##            report.reward the reward is computed or not (Default = `TRUE`)
+  ## ----------------------------------------------------
+
+  L<-dim(Gamma)[2]
+  opt.weight<-rep(NA, L)
+  opt.reward<-NA
+  # Problem definition
+  v<-Variable(L)
+  Diag.matrix<-diag(eigen(Gamma)$values)
+  for(ind in 1:L){
+    Diag.matrix[ind,ind]<-max(Diag.matrix[ind,ind],0.001)
+  }
+  Gamma.positive<-eigen(Gamma)$vectors%*%Diag.matrix%*%t(eigen(Gamma)$vectors)
+  objective <- Minimize(quad_form(v,Gamma.positive+diag(delta,L)))
+  constraints <- list(v >= 0, sum(v)== 1)
+  prob.weight<- Problem(objective, constraints)
+  if(is_dcp(prob.weight)){
+    result<- solve(prob.weight)
+    opt.status<-result$status
+    opt.sol<-result$getValue(v)
+    for(l in 1:L){
+      opt.weight[l]<-opt.sol[l]*(abs(opt.sol[l])>10^{-8})
+    }
+  }
+
+ opt.weight<-opt.weight/sum(opt.weight)
+ opt.weight
+}
 .index_map <- function(L, l, k) {
   # returns 1-based index for vectorized lower-triangle (column-wise), with l>=k
   l0 <- l - 1; k0 <- k - 1

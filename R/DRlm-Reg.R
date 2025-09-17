@@ -4,7 +4,45 @@
 # =====================================================================
 # Fit (Closed-form Solution)
 # =====================================================================
-
+#' @param X_list list of feature matrices from each source (each n_l x p)
+#' @param y_list list of outcome vectors from each source (each n_l x 1)
+#' @param loading_mat loading matrix (p x m) for m loadings of interest
+#' @param X0 target feature matrix (N x p); if NULL, use all source data
+#' @param intercept whether to include intercept in outcome models (default: FALSE)
+#' @param intercept_loading whether to include intercept in loading models (default: FALSE)
+#' @param delta regularization parameter in weight optimization (default: 0)
+#' @param lambda regularization parameter in high-dimensional outcome models;
+#' if "CV.min" or "CV.1se", use cross-validation to select (default: NULL)
+#' @param verbose whether to print fitting progress (default: FALSE)
+#' @return a list containing the following components:
+#' @importFrom SIHR LF
+#' @importFrom stats as.formula glm qnorm
+#' @importFrom Matrix Diagonal
+#' @importFrom glmnet glmnet cv.glmnet
+#' @importFrom CVXR Variable Problem Minimize solve
+#' @importFrom glmnet glmnet cv.glmnet
+#' @example
+#' set.seed(0)
+#' p <- 100; L <- 2
+#' A1gen <- function(rho, p) { i <- matrix(rep(1:p, each=p), p); j <- t(i); rho^abs(i - j) }
+#' cov_source <- A1gen(0.6, p)
+#' X1 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov_source)
+#' X2 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov_source)
+#' b1 <- rep(0,p); b1[1:5] <- (1:5)/20; b1[97:99] <- c(0.5, -0.5, -0.5)
+#' b2 <- rep(0,p); b2[6:10] <- (1:5)/20; b2[97:99] <- 0.5*c(0.5,-0.5,-0.5)
+#' Y1 <- as.numeric(X1 %*% b1 + rnorm(100))
+#' Y2 <- as.numeric(X2 %*% b2 + rnorm(100))
+#' cov0 <- cov_source; diag(cov0) <- 1.5; cov0[1:5,1:5] <- 0.9; diag(cov0[1:5,1:5]) <- 1.5; cov0[99:100,99:100] <- matrix(c(1.5,0.9,0.9,1.5),2)
+#' X0 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov0)
+#' loading_mat <- matrix(0, nrow = 100, ncol = 2); loading_mat[96:100,1] <- 0.4; loading_mat[99:100,2] <- 0.8 #; loading_mat <- t(loading_mat)
+#' fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
+#'           family = "drlm_reg", f_learner = "high_d", w_learner = "linear",
+#'           loading_mat = loading_mat, intercept = FALSE,
+#'           delta = 0, lambda = "CV.min", verbose = FALSE)
+#' inf <- infer(fit, M = 50)
+#' summary(fit, infer=inf)
+#' pred <- predict(fit)
+#' @export
 fit_drlm_reg <- function(X_list, y_list, loading_mat,
                          X0 = NULL,
                          intercept = FALSE,
@@ -42,7 +80,7 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
   for (l in seq_len(L)) {
     Xc <- if (intercept) cbind(1, X_list[[l]]) else X_list[[l]]
     init_model <- .learn_f(mode = "reg", learner = "high_d", lambda_val = lambda)
-    init_model$fit(Xc, y_list[[l]])
+    init_model$fit(Xc, y_list[[l]],intercept = intercept)
     b_init <- init_model$coef()
     sparsity <- sum(abs(b_init) > 1e-4)
     pred_lin <- as.numeric(Xc %*% b_init)
@@ -64,7 +102,7 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
   correct_mat <- matrix(0, L, L)
   Proj_array <- array(0, dim = c(L, L, d))
   for (l in seq_len(L)) {
-    Xl <- if (intercept) cbind(1, X_list[[l]]) else X_list[[l]]
+    Xl <- X_list[[l]]
     yl <- y_list[[l]]
     for (k in seq_len(L)) {
       bk <- init_est[[k]]$beta_init
@@ -89,12 +127,12 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
   }
   Gamma_debias[lower.tri(Gamma_debias)] <- t(Gamma_debias)[lower.tri(Gamma_debias)]
 
-  w <- .opt_weight(Gamma_debias, delta = delta)
+  w <- opt_weight(Gamma_debias, delta = delta)
 
   # Debiased loadings per source on the *user-supplied* loading_mat
   debias_est <- vector("list", L)
   for (l in seq_len(L)) {
-    Xl <- if (intercept) cbind(1, X_list[[l]]) else X_list[[l]]
+    Xl <- X_list[[l]]
     yl <- y_list[[l]]
     est_all <- SIHR::LF(
       X = Xl, y = yl,
@@ -110,7 +148,8 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
       se.vec         = as.numeric(est_all$se.vec)
     )
   }
-  loading_coef <- Reduce(`+`, Map(function(wl, pt) wl * pt$est.debias.vec, w, debias_est))
+  est_bc <- Reduce(`+`, Map(function(wl, pt) wl * pt$est.debias.vec, w, debias_est))
+  est_plug <- Reduce(`+`, Map(function(wl, pt) wl * pt$beta_init, w, init_est))
 
   return(list(
     L = L, d = d, intercept = intercept,
@@ -119,7 +158,8 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
     Gamma = Gamma_debias,
     Gamma_plugin = Gamma_plugin,
     weight_ = w,
-    loading_coef_ = as.numeric(loading_coef),
+    est_bc_ = as.numeric(est_bc),
+    est_plug_ = as.numeric(est_plug),
     init_est = init_est,
     debias_est = debias_est,
     Proj_array = Proj_array,
@@ -132,17 +172,26 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
 # =====================================================================
 # Predict on target
 # =====================================================================
+#' @param fit a fitted model returned by fitting
+#' @return a numeric vector of predicted outcomes on target (length N)
 
 predict_drlm_reg <- function(fit) {
-  w_plugin <- .opt_weight(fit$Gamma_plugin, delta = fit$delta)
-  plugin_coef <- Reduce(`+`, Map(function(wl, pt) wl * pt$beta_init, w_plugin, fit$init_est))
-  pred_plugin <- as.numeric(fit$X0_use %*% plugin_coef)
+
+  pred_plugin <- as.numeric(fit$X0_use %*% fit$est_plug_)
   return(pred_plugin)
 }
 
 # =====================================================================
 # Inference
 # =====================================================================
+#' @param fit a fitted model returned by fitting
+#' @param M number of Monte Carlo samples (default: 500)
+#' @param alpha significance level (default: 0.05)
+#' @param tau variance inflation parameter (default: 0.2)
+#' @param alpha_thres threshold for small eigenvalues (default: 0.01)
+#' @param threshold threshold for eigenvalue truncation (default: 0)
+#' @return a list containing the following components:
+#' \item{CI}{an n_loading x 2 matrix of confidence intervals for each loading}
 
 infer_drlm_reg <- function(fit, M = 500, alpha = 0.05,
                            tau = 0.2, alpha_thres = 0.01, threshold = 0) {
@@ -176,7 +225,7 @@ infer_drlm_reg <- function(fit, M = 500, alpha = 0.05,
     Gm[lower.tri(Gm, diag = TRUE)] <- gen_samples[m, ]
     Gm <- Gm + t(Gm) - diag(diag(Gm))
 
-    w <- .opt_weight(Gm, delta = fit$delta)
+    w <- opt_weight(Gm, delta = fit$delta)
     weight_mat[m, ] <- w
 
     gen_coef <- as.numeric(t(loading_per_source) %*% w)
@@ -191,11 +240,121 @@ infer_drlm_reg <- function(fit, M = 500, alpha = 0.05,
   CI_U <- cbind(CI_lb_U, CI_ub_U)
 
   list(
-    CI = CI_U,
-    weights_resampled = weight_mat,
-    Var_Gamma = Var_Gamma
+    CI = CI_U
   )
 }
+
+
+
+# =====================================================================
+# Summary
+# =====================================================================
+
+summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
+  width <- 8; per_row_coef <- 10; per_row_ci <- 5; digits_coef <- 4; digits_ci <- 4
+
+  # ---- basic checks ----
+  req <- c("weight_", "est_plug_", "est_bc_")
+  missing_req <- req[!vapply(req, function(nm) !is.null(fit[[nm]]), logical(1))]
+  if (length(missing_req)) {
+    stop(sprintf("Missing fields in 'fit': %s", paste(missing_req, collapse = ", ")))
+  }
+
+  w         <- as.numeric(fit$weight_)     # length L
+  est_plug  <- as.numeric(fit$est_plug_)   # length d
+  est_bc    <- as.numeric(fit$est_bc_)     # length n_loading
+  L         <- length(w)
+  n_loading <- length(est_bc)
+
+
+  # ---- helpers (same style as your cls summary) ----
+  normalize_indices <- function(user_idx, lo_1based, hi_1based, name) {
+    if (is.null(user_idx)) return(seq.int(lo_1based, hi_1based) - 1L)  # internal 0-based
+    idx <- tryCatch(as.integer(user_idx), error = function(e) NA_integer_)
+    if (any(is.na(idx))) stop(sprintf("%s must be integer(-coercible).", name))
+    if (any(idx < lo_1based | idx > hi_1based)) {
+      bad <- idx[idx < lo_1based | idx > hi_1based]
+      stop(sprintf("%s out of range: %s not in [%d,%d]", name, paste(bad, collapse=","), lo_1based, hi_1based))
+    }
+    idx[!duplicated(idx)] - 1L
+  }
+
+  print_chunks <- function(label, indices0, values, width = 8, per_row = 10,
+                           fmt = "%8.4f", header_label = "dimension") {
+    n <- length(indices0); if (n == 0L) return()
+    starts <- seq.int(1L, n, by = per_row)
+    for (s in starts) {
+      e <- min(s + per_row - 1L, n)
+      idx_chunk  <- indices0[s:e]
+      vals_chunk <- values[s:e]
+      header <- paste0(sprintf("%-10s| ", header_label),
+                       paste(sprintf(paste0("%", width, "d"), idx_chunk + 1L), collapse = " "))
+      row    <- paste0(sprintf("%-10s| ", label),
+                       paste(if (is.character(vals_chunk)) vals_chunk else sprintf(fmt, vals_chunk),
+                             collapse = " "))
+      cat(header, "\n", row, "\n", sep = "")
+    }
+  }
+
+  dim_idx0 <- normalize_indices(dim_search, 1L, n_loading, "dim_search")
+
+  # ---- print ----
+  cat("Model Summary (DRlm-Regression):\n")
+  cat("=================================\n")
+
+  # Weights
+  cat("Fitted Weights:\n\n")
+  group_idx0 <- seq_len(L) - 1L
+  print_chunks("weight_", group_idx0, w,
+               width = width, per_row = 10,
+               fmt = sprintf("%%%d.%df", width, digits_coef),
+               header_label = "group")
+  cat("\n")
+
+  cat("=================================\n")
+
+  # Plug-in estimates (all loadings)
+  cat("Fitted Plug-in Estimations:\n\n")
+  all_idx0 <- seq_len(fit$d) - 1L
+  print_chunks("coef_", all_idx0, est_plug,
+               width = width, per_row = per_row_coef,
+               fmt = sprintf("%%%d.%df", width, digits_coef),
+               header_label = "dimension")
+  cat("\n")
+
+  cat("=================================\n")
+
+  # Debiased estimates (subset by dim_search)
+  cat("Fitted Debiased Estimations:\n\n")
+  print_chunks("coef_", dim_idx0, est_bc[dim_idx0 + 1L],
+               width = width, per_row = per_row_coef,
+               fmt = sprintf("%%%d.%df", width, digits_coef),
+               header_label = "dimension")
+  cat("\n")
+
+  # Confidence intervals (optional; from infer_drlm_reg)
+  if (!is.null(infer) && !is.null(infer$CI)) {
+    CI <- infer$CI
+    if (!is.matrix(CI) || nrow(CI) != n_loading || ncol(CI) != 2) {
+      warning("infer$CI should be an n_loading x 2 matrix (lb, ub). Skipping CI print.")
+    } else {
+      cat("=================================\n")
+      cat("Confidence Intervals:\n\n")
+      ci_sub <- CI[dim_idx0 + 1L, , drop = FALSE]
+      ci_str <- paste0("(", formatC(ci_sub[, 1], format = "f", digits = digits_ci), ",",
+                       formatC(ci_sub[, 2], format = "f", digits = digits_ci), ")")
+      print_chunks("CI", dim_idx0, ci_str,
+                   width = max(width, 14), per_row = per_row_ci,
+                   fmt = "%s", header_label = "dimension")
+      cat("\n")
+    }
+  } else {
+    cat("Confidence Intervals not provided. Run infer_drlm_reg() and pass its result via infer=.\n")
+  }
+
+  invisible(NULL)
+}
+
 
 
 

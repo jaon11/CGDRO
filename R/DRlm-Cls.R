@@ -5,6 +5,44 @@ source("R/Utility.R")
 # =====================================================================
 # Fit (Optimistic Gradient Mirror Prox)
 # =====================================================================
+#' @param X_list list of feature matrices (each n_i x d) for each source group
+#' @param y_list list of label vectors (each n_i x 1) for each source group
+#' @param X0 feature matrix (n_0 x d) for the target group; if NULL, use all source data
+#' @param f_learner outcome model learner; one of "linear", "xgb", "xgb.cv", "high_d" (default: "xgb")
+#' @param w_learner density ratio model learner; one of "linear", "xgb", "xgb.cv","kliep" (default: "linear")
+#' @param split whether to use sample-splitting in outcome/density estimation (default: TRUE)
+#' @param max_iter maximum number of iterations (default: 1000)
+#' @param tol tolerance for convergence (default: 1e-6)
+#' @param check_dual whether to compute duality gap every 50 iterations (default: FALSE)
+#' @param verbose whether to print log messages (default: FALSE)
+#' @param seed random seed for sample-splitting (default: 123)
+#' @return a list containing the fitted model parameters and other information
+#' @importFrom MASS mvrnorm
+#' @importFrom stats as.formula glm model.matrix qnorm rbinom rmultinom
+#' @importFrom xgboost xgb.DMatrix xgb.cv xgb.train predict
+#' @importFrom glmnet cv.glmnet glmnet
+#' @importFrom KLIEP kliep
+#' @importFrom nnet multinom
+#' @importFrom Matrix sparse.model.matrix
+#' @importFrom parallel mclapply
+#' @importFrom utils capture.output
+#' @examples
+#' set.seed(1234)
+#' L <- 3; n <- 200; p <- 10; N <- 2000; K <- 2; C <- K + 1
+#' X_list <- replicate(L, matrix(rnorm(n * p, 0, 1), n, p), simplify = FALSE)
+#' X0 <- matrix(rnorm(N * p, 0.1, 1), N, p)
+#' beta_list <- replicate(L, matrix(rnorm(p * K, 0, 0.25), p, K), simplify = FALSE)
+#' logits_list <- Map(function(X, B) sweep(X %*% B, 2, colMeans(X %*% B), "-"), X_list, beta_list)
+#' probsK_list <- lapply(logits_list, .softmax_reduced)
+#' probs_list <- lapply(probsK_list, function(PK) cbind(1 - rowSums(PK), PK))
+#' y_list <- lapply(probs_list, function(Pr) apply(Pr, 1, function(pr) which.max(rmultinom(1, 1, pr)) - 1))
+
+#' fit <- cgdro(X_list, y_list, X0,
+#'             family = "drlm_cls", f_learner = "xgb", w_learner = "kliep")
+#' inf <- infer(fit, M = 50, alpha = 0.05, parallel = FALSE, n_workers = 2, diag = TRUE)
+#' summary(fit, infer=inf, dim_search = c(1,3,5), class_search = c(2))
+#' predict(fit)
+#' @export
 fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
                          f_learner = "xgb", w_learner = "linear",
                          split = TRUE, max_iter = 1000, tol = 1e-6, check_dual = FALSE,
@@ -27,9 +65,6 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
                          split, max_iter, tol, check_dual, verbose, seed)
 
   # learners
- # pd <- .fit_proba_density(X_list, y_list, X0, f_learner, w_learner,
-#                           split, proba_params_list, density_params_list, seed)
-
   probaX_list <- list(); probaX0_list <- list(); omegaX_list <- list()
   for (i in seq_len(L)) {
     # learn f:
@@ -125,24 +160,34 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
 # =====================================================================
 # Predict on target
 # =====================================================================
-predict_proba_drlm_cls <- function(fit) {
+#' @param fit a fitted model returned by fit_drlm_cls
+#' @return a list containing predicted probabilities and predicted labels
+predict_drlm_cls <- function(fit) {
   theta_mat <- matrix(fit$coef_, nrow = fit$d, byrow = FALSE)
   logits <- fit$X0 %*% theta_mat
   logits_max <- apply(logits, 1, max)
   stable <- sweep(logits, 1, logits_max, "-")
   exp_terms <- exp(stable)
   proba_red <- sweep(exp_terms, 1, 1 + rowSums(exp_terms), "/")  # (n, K)
-  cbind(1 - rowSums(proba_red), proba_red)                       # (n, C)
+  proba_red <- cbind(1 - rowSums(proba_red), proba_red)                       # (n, C)
+  label_pred <- max.col(proba_red) - 1
+  result <- list(pred_proba = proba_red, pred = label_pred)
 }
 
 # =====================================================================
 # Inference
 # =====================================================================
-
-infer_drlm_cls <- function(fit, index = 1, M = 200, alpha = 0.05,
+#' @param fit a fitted model returned by fit_drlm_cls
+#' @param M number of resamples (default: 200)
+#' @param alpha significance level for (1-alpha) confidence intervals (default: 0.05)
+#' @param parallel whether to use parallel computing (default: FALSE)
+#' @param n_workers number of workers for parallel computing (default: 4)
+#' @param diag whether to use diagonal approximation for covariance estimation (default: TRUE)
+#' @return a list containing M resampled estimates and confidence intervals
+infer_drlm_cls <- function(fit, M = 200, alpha = 0.05,
                            parallel = FALSE, n_workers = 4, diag = TRUE) {
   # check arguments
-  check_arg_drlm_cls_inf(fit, index, M, alpha, parallel, n_workers, diag)
+  check_arg_drlm_cls_inf(fit, M, alpha, parallel, n_workers, diag)
 
   caches <- .prepare_inference(fit, diag = diag)
   z <- qnorm(1 - alpha/2)
@@ -183,9 +228,109 @@ infer_drlm_cls <- function(fit, index = 1, M = 200, alpha = 0.05,
     CI_ub_M = lapply(res, `[[`, "ub"),
     CI_lb_U = CI_lb_U,
     CI_ub_U = CI_ub_U,
-    CI = CI_Union_list,
-    CI_index = CI_Union[index, , , drop = FALSE]
+    CI = CI_Union_list
   )
 }
 
+# =====================================================================
+# Summary
+# =====================================================================
 
+
+summary_drlm_cls <- function(fit, infer = NULL, dim_search = NULL, class_search = NULL) {
+  width = 8; per_row_coef = 10; per_row_ci = 5; digits_coef = 4; digits_ci = 3
+  # ---- basic checks ----
+  if (is.null(fit$coef_) || is.null(fit$weight_)) {
+    cat("Model is not fitted yet. Run cgdro() first.\n")
+    return(invisible(NULL))
+  }
+  d <- fit$d; K <- fit$K; num_class <- fit$num_class
+  stopifnot(is.numeric(d), is.numeric(K), is.numeric(num_class))
+
+  # ---- helpers ----
+  normalize_indices <- function(user_idx, lo_1based, hi_1based, name) {
+    if (is.null(user_idx)) return(seq.int(lo_1based, hi_1based) - 1L)  # internal 0-based
+    idx <- tryCatch(as.integer(user_idx), error = function(e) NA_integer_)
+    if (any(is.na(idx))) stop(sprintf("%s must be integer(-coercible).", name))
+    if (any(idx < lo_1based | idx > hi_1based)) {
+      bad <- idx[idx < lo_1based | idx > hi_1based]
+      stop(sprintf("%s out of range: %s not in [%d,%d]", name, paste(bad, collapse=","), lo_1based, hi_1based))
+    }
+    idx[!duplicated(idx)] - 1L
+  }
+
+  print_chunks <- function(label, indices0, values, width = 8, per_row = 10, fmt = "%8.4f") {
+    n <- length(indices0); if (n == 0L) return()
+    starts <- seq.int(1L, n, by = per_row)
+    for (s in starts) {
+      e <- min(s + per_row - 1L, n)
+      idx_chunk  <- indices0[s:e]
+      vals_chunk <- values[s:e]
+      header <- paste0("dimension | ", paste(sprintf(paste0("%", width, "d"), idx_chunk + 1L), collapse = " "))
+      row    <- paste0(sprintf("%-10s| ", label),
+                       paste(if (is.character(vals_chunk)) vals_chunk else sprintf(fmt, vals_chunk),
+                             collapse = " "))
+      cat(header, "\n", row, "\n", sep = "")
+    }
+  }
+
+  # ---- header ----
+  cat("Model Summary\n")
+  cat("=================================\n")
+
+  # ---- weights ----
+  cat("Fitted Weights:\n\n")
+  w <- as.numeric(fit$weight_)
+  group_idx0 <- seq_along(w) - 1L
+  print_chunks("weight_", group_idx0, w, width = width, per_row = 10, fmt = sprintf("%%%d.%df", width, digits_coef))
+  cat("\n")
+
+  # ---- coefficients ----
+  cat("=================================\n")
+  cat("Fitted Coefficients:\n\n")
+  coef_mat <- matrix(fit$coef_, nrow = d, byrow = FALSE)
+  dim_idx0 <- normalize_indices(dim_search, 1L, d, "dim_search")
+
+  if (is.null(class_search)) {
+    class_list <- seq.int(2L, num_class)
+  } else {
+    class_list <- as.integer(class_search)
+    if (any(class_list < 2L | class_list > num_class))
+      stop(sprintf("class_search out of range: must be in [2,%d]", num_class))
+  }
+
+  for (c_lab in class_list) {
+    j <- c_lab - 2L                     # 0..K-1
+    vals <- coef_mat[dim_idx0 + 1L, j + 1L]
+    cat(sprintf("Class %d coefficients:\n", c_lab))
+    print_chunks("coef_", dim_idx0, vals, width = width, per_row = per_row_coef,
+                 fmt = sprintf("%%%d.%df", width, digits_coef))
+    cat("\n")
+  }
+
+  # ---- confidence intervals (optional) ----
+  if (!is.null(infer) && !is.null(infer$CI)) {
+    cat("=================================\n")
+    cat("Confidence Intervals:\n\n")
+    # infer$CI is a list of length K; each element is a d x 2 matrix (lb, ub)
+    stopifnot(length(infer$CI) == K)
+    for (c_lab in class_list) {
+      j <- c_lab - 2L
+      ci_j <- infer$CI[[j + 1L]]          # d x 2
+      ci_sub <- ci_j[dim_idx0 + 1L, , drop = FALSE]
+      ci_str <- paste0(
+        "(", formatC(ci_sub[, 1], format = "f", digits = digits_ci), ",",
+        formatC(ci_sub[, 2], format = "f", digits = digits_ci), ")"
+      )
+      cat(sprintf("Class %d Confidence Intervals:\n", c_lab))
+      print_chunks("CIs", dim_idx0, ci_str, width = max(width, 14), per_row = per_row_ci, fmt = "%s")
+      cat("\n")
+    }
+  } else {
+    cat("Confidence Intervals not provided. Run infer() and pass its result via infer=.\n")
+  }
+
+  invisible(NULL)
+}
+
+`%||%` <- function(a, b) if (!is.null(a)) a else b

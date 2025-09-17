@@ -1,4 +1,4 @@
-check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, prob_learner = NULL, density_learner = NULL,
+check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, f_learner = NULL, w_learner = NULL,
                                split = NULL, max_iter = NULL, tol = NULL, check_dual = NULL, verbose = NULL,
                                seed = NULL){
   if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
@@ -11,8 +11,8 @@ check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, prob
   if(!is.null(X0)){
     if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
   }
-  if(is.null(prob_learner) || !(prob_learner %in% c("linear", "xgb", "xgb.cv"))) stop("prob_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(density_learner) || !(density_learner %in% c("linear", "xgb", "xgb.cv"))) stop("density_learner must be one of 'linear', 'xgb', 'xgb.cv'")
+  if(is.null(f_learner) || !(f_learner %in% c("linear", "xgb", "xgb.cv"))) stop("f_learner must be one of 'linear', 'xgb', 'xgb.cv'")
+  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","kliep"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','kliep'")
   if(is.null(split) || !is.logical(split)) stop("split must be TRUE or FALSE")
   if(is.null(max_iter) || !is.numeric(max_iter) || length(max_iter)!=1 || max_iter<=0 || max_iter!=round(max_iter)) stop("max_iter must be a positive integer")
   if(is.null(tol) || !is.numeric(tol) || length(tol)!=1 || tol<=0) stop("tol must be a positive numeric value")
@@ -24,9 +24,8 @@ check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, prob
 }
 
 
-check_arg_drlm_cls_inf <- function(fit = NULL, index = NULL, M = NULL, alpha = NULL, parallel = NULL, n_workers = NULL, diag = NULL){
+check_arg_drlm_cls_inf <- function(fit = NULL, M = NULL, alpha = NULL, parallel = NULL, n_workers = NULL, diag = NULL){
   if(is.null(fit) || !is.list(fit)) stop("fit must be a list returned by fit_drlm_cls")
-  if(is.null(index) || !is.numeric(index) || length(index)!=1 || index<=0 || index!=round(index) || index>length(fit$X_list)) stop(paste0("index must be an integer between 1 and ", length(fit$X_list)))
   if(is.null(M) || !is.numeric(M) || length(M)!=1 || M<=0 || M!=round(M)) stop("M must be a positive integer")
   if(is.null(alpha) || !is.numeric(alpha) || length(alpha)!=1 || alpha<=0 || alpha>=1) stop("alpha must be a numeric value in (0,1)")
   if(is.null(parallel) || !is.logical(parallel)) stop("parallel must be TRUE or FALSE")
@@ -76,8 +75,9 @@ check_arg_drlm_reg_inf <- function(fit = NULL, M = NULL, alpha = NULL, tau = NUL
 }
 
 check_arg_drol_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL,
-                          outcome_learner = NULL,
-                          density_learner = NULL,
+                          f_learner = NULL, w_learner = NULL,
+                          bias_correct = NULL, priors = NULL,
+                          ridge = NULL, solver = NULL,
                           seed = NULL){
   if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
   if(is.null(y_list) || (!is.list(y_list))) stop("y_list must be a list")
@@ -89,15 +89,8 @@ check_arg_drol_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL,
   if(!is.null(X0)){
     if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
   }
-  if(is.null(outcome_learner) || !(outcome_learner %in% c("linear", "xgb", "xgb.cv"))) stop("outcome_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(density_learner) || !(density_learner %in% c("linear", "xgb", "xgb.cv"))) stop("density_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(seed) || !is.numeric(seed) || length(seed)!=1 || seed!=round(seed)) stop("seed must be an integer")
-
-}
-
-check_arg_drol_pred <- function(fit = NULL, bias_correct = NULL, priors = NULL,
-                                ridge = NULL, solver = NULL){
-  if(is.null(fit) || !is.list(fit)) stop("fit must be a list returned by fit_drol")
+  if(is.null(f_learner) || !(f_learner %in% c("linear", "xgb", "xgb.cv"))) stop("f_learner must be one of 'linear', 'xgb', 'xgb.cv'")
+  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","kliep"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','kliep'")
   if(is.null(bias_correct) || !is.logical(bias_correct)) stop("bias_correct must be TRUE or FALSE")
   if(!is.null(priors)){
     if(!is.list(priors) || length(priors)!=2) stop("priors must be a list of length 2")
@@ -108,6 +101,8 @@ check_arg_drol_pred <- function(fit = NULL, bias_correct = NULL, priors = NULL,
   }
   if(is.null(ridge) || !is.numeric(ridge) || length(ridge)!=1 || ridge<0) stop("ridge must be a non-negative numeric value")
   if(is.null(solver) || !(any(solver %in% c("ECOS", "SCS")))) stop("solver must be one of 'ECOS' or 'SCS'")
+  if(is.null(seed) || !is.numeric(seed) || length(seed)!=1 || seed!=round(seed)) stop("seed must be an integer")
+
 
 }
 
