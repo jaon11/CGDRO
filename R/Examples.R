@@ -19,15 +19,16 @@ probs_list <- lapply(probsK_list, function(PK) cbind(1 - rowSums(PK), PK))
 y_list <- lapply(probs_list, function(Pr) apply(Pr, 1, function(pr) which.max(rmultinom(1, 1, pr)) - 1))
 
 fit <- cgdro(X_list, y_list, X0,
-             family = "drlm_cls", f_learner = "xgb", w_learner = "linear")
+             family = "drlm_cls", f_learner = "xgb", w_learner = "kliep")
 fit$coef_
 fit$weight
 
 predict(fit)
 
-inf <- infer(fit, index = 1, M = 50, alpha = 0.05, parallel = FALSE, n_workers = 2, diag = TRUE)
+inf <- infer(fit, M = 50, alpha = 0.05, parallel = FALSE, n_workers = 2, diag = TRUE)
 inf$CI
-inf$CI_index
+
+summary(fit, infer=inf, dim_search = c(1,3,5), class_search = c(2))
 
 ######################################################################
 ########################### DRlm-Regression ##########################
@@ -52,12 +53,15 @@ loading_mat <- matrix(0, nrow = 100, ncol = 2); loading_mat[96:100,1] <- 0.4; lo
 fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
              family = "drlm_reg", f_learner = "high_d", w_learner = "linear",
              loading_mat = loading_mat, intercept = FALSE,
-             delta = 0, lambda = "CV.min", verbose = TRUE)
+             delta = 0, lambda = "CV.min", verbose = FALSE)
 
-predict(fit)
+
 
 inf <- infer(fit, M = 50)
 inf$CI
+
+summary(fit, infer=inf)
+
 # ------------------- Example: p=5, L=2 -------------------
 
 set.seed(0)
@@ -137,8 +141,8 @@ X0 <- MASS::mvrnorm(n0, rep(0,p), cov_source)
 Xlist <- list(X1, X2); Ylist <- list(Y1, Y2)
 
 fit <- cgdro(Xlist, Ylist, X0,
-             family = "drol", f_learner = "xgb", w_learner = "linear", seed = 123)
+             family = "drol", f_learner = "linear", w_learner = "linear", bias_correct = TRUE, priors=NULL, seed = 123)
 res <- predict(fit)
-res$weight_                                           # optimal weights
+fit$weight                                           # optimal weights
 head(res$pred)
 
