@@ -169,7 +169,6 @@ loading.mat[99:100, 2] = 0.8
 
 
 
-
 ### Implementation
 ```{r ex2-implementation}
 fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,

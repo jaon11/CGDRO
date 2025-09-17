@@ -259,14 +259,16 @@ summary_drlm_cls <- function(fit, infer = NULL, dim_search = NULL, class_search 
     idx[!duplicated(idx)] - 1L
   }
 
-  print_chunks <- function(label, indices0, values, width = 8, per_row = 10, fmt = "%8.4f") {
+  print_chunks <- function(label, indices0, values, width = 8, per_row = 10,
+                           fmt = "%8.4f", header_label = "index") {
     n <- length(indices0); if (n == 0L) return()
     starts <- seq.int(1L, n, by = per_row)
     for (s in starts) {
       e <- min(s + per_row - 1L, n)
       idx_chunk  <- indices0[s:e]
       vals_chunk <- values[s:e]
-      header <- paste0("dimension | ", paste(sprintf(paste0("%", width, "d"), idx_chunk + 1L), collapse = " "))
+      header <- paste0(sprintf("%-10s| ", header_label),
+                       paste(sprintf(paste0("%", width, "d"), idx_chunk + 1L), collapse = " "))
       row    <- paste0(sprintf("%-10s| ", label),
                        paste(if (is.character(vals_chunk)) vals_chunk else sprintf(fmt, vals_chunk),
                              collapse = " "))
@@ -282,7 +284,7 @@ summary_drlm_cls <- function(fit, infer = NULL, dim_search = NULL, class_search 
   cat("Fitted Weights:\n\n")
   w <- as.numeric(fit$weight_)
   group_idx0 <- seq_along(w) - 1L
-  print_chunks("weight_", group_idx0, w, width = width, per_row = 10, fmt = sprintf("%%%d.%df", width, digits_coef))
+  print_chunks("weight_", group_idx0, w, width = width, per_row = 10, fmt = sprintf("%%%d.%df", width, digits_coef), header_label = "group")
   cat("\n")
 
   # ---- coefficients ----

@@ -280,7 +280,7 @@ summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
   }
 
   print_chunks <- function(label, indices0, values, width = 8, per_row = 10,
-                           fmt = "%8.4f", header_label = "dimension") {
+                           fmt = "%8.4f", header_label = "index") {
     n <- length(indices0); if (n == 0L) return()
     starts <- seq.int(1L, n, by = per_row)
     for (s in starts) {
@@ -319,7 +319,7 @@ summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
   print_chunks("coef_", all_idx0, est_plug,
                width = width, per_row = per_row_coef,
                fmt = sprintf("%%%d.%df", width, digits_coef),
-               header_label = "dimension")
+               header_label = "index")
   cat("\n")
 
   cat("=================================\n")
@@ -329,7 +329,7 @@ summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
   print_chunks("coef_", dim_idx0, est_bc[dim_idx0 + 1L],
                width = width, per_row = per_row_coef,
                fmt = sprintf("%%%d.%df", width, digits_coef),
-               header_label = "dimension")
+               header_label = "index")
   cat("\n")
 
   # Confidence intervals (optional; from infer_drlm_reg)
@@ -345,7 +345,7 @@ summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
                        formatC(ci_sub[, 2], format = "f", digits = digits_ci), ")")
       print_chunks("CI", dim_idx0, ci_str,
                    width = max(width, 14), per_row = per_row_ci,
-                   fmt = "%s", header_label = "dimension")
+                   fmt = "%s", header_label = "index")
       cat("\n")
     }
   } else {
