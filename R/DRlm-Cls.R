@@ -40,7 +40,7 @@ source("R/Utility.R")
 #' fit <- cgdro(X_list, y_list, X0,
 #'             family = "drlm_cls", f_learner = "xgb", w_learner = "kliep")
 #' inf <- infer(fit, M = 50, alpha = 0.05, parallel = FALSE, n_workers = 2, diag = TRUE)
-#' summary(fit, infer=inf, dim_search = c(1,3,5), class_search = c(2))
+#' summary(fit, infer=inf, index = c(1,3,5), class_index = c(2))
 #' predict(fit)
 #' @export
 fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
@@ -237,7 +237,7 @@ infer_drlm_cls <- function(fit, M = 200, alpha = 0.05,
 # =====================================================================
 
 
-summary_drlm_cls <- function(fit, infer = NULL, dim_search = NULL, class_search = NULL) {
+summary_drlm_cls <- function(fit, infer = NULL, index = NULL, class_index = NULL) {
   width = 8; per_row_coef = 10; per_row_ci = 5; digits_coef = 4; digits_ci = 3
   # ---- basic checks ----
   if (is.null(fit$coef_) || is.null(fit$weight_)) {
@@ -291,18 +291,18 @@ summary_drlm_cls <- function(fit, infer = NULL, dim_search = NULL, class_search 
   cat("=================================\n")
   cat("Fitted Coefficients:\n\n")
   coef_mat <- matrix(fit$coef_, nrow = d, byrow = FALSE)
-  dim_idx0 <- normalize_indices(dim_search, 1L, d, "dim_search")
+  dim_idx0 <- normalize_indices(index, 1L, d, "index")
 
-  if (is.null(class_search)) {
-    class_list <- seq.int(2L, num_class)
+  if (is.null(class_index)) {
+    class_list <- seq.int(1L, num_class-1)
   } else {
-    class_list <- as.integer(class_search)
-    if (any(class_list < 2L | class_list > num_class))
-      stop(sprintf("class_search out of range: must be in [2,%d]", num_class))
+    class_list <- as.integer(class_index)
+    if (any(class_list < 1L | class_list > num_class-1))
+      stop(sprintf("class_index out of range: must be in [1,%d]", num_class-1))
   }
 
   for (c_lab in class_list) {
-    j <- c_lab - 2L                     # 0..K-1
+    j <- c_lab - 1L                     # 0..K-1
     vals <- coef_mat[dim_idx0 + 1L, j + 1L]
     cat(sprintf("Class %d coefficients:\n", c_lab))
     print_chunks("coef_", dim_idx0, vals, width = width, per_row = per_row_coef,
@@ -317,7 +317,7 @@ summary_drlm_cls <- function(fit, infer = NULL, dim_search = NULL, class_search 
     # infer$CI is a list of length K; each element is a d x 2 matrix (lb, ub)
     stopifnot(length(infer$CI) == K)
     for (c_lab in class_list) {
-      j <- c_lab - 2L
+      j <- c_lab - 1L
       ci_j <- infer$CI[[j + 1L]]          # d x 2
       ci_sub <- ci_j[dim_idx0 + 1L, , drop = FALSE]
       ci_str <- paste0(

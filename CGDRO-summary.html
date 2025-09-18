@@ -11,7 +11,7 @@
 
 <meta name="author" content="Ziang Fu" />
 
-<meta name="date" content="2025-09-16" />
+<meta name="date" content="2025-09-17" />
 
 <title>CGDRO — Summary Report</title>
 
@@ -1481,7 +1481,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">CGDRO — Summary Report</h1>
 <h4 class="author">Ziang Fu</h4>
-<h4 class="date">2025-09-16</h4>
+<h4 class="date">2025-09-17</h4>
 
 </div>
 
@@ -1538,7 +1538,7 @@ ylist &lt;- lapply(probs_list, function(P) {
 <h3><span class="header-section-number">2.0.1</span> Implementation</h3>
 <pre class="r"><code>## fit cgdro
 fit &lt;- cgdro(Xlist, ylist, X0,
-             family = &quot;drlm_cls&quot;, f_learner = &quot;xgb&quot;, w_learner = &quot;linear&quot;)
+             family = &quot;drlm_cls&quot;, f_learner = &quot;linear&quot;, w_learner = &quot;linear&quot;)
 inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag = TRUE)</code></pre>
 </div>
 <div id="results" class="section level3" number="2.0.2">
@@ -1548,65 +1548,65 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag
 ## =================================
 ## Fitted Weights:
 ## 
-## dimension |        1        2
-## weight_   |   0.6881   0.3119
+## group     |        1        2
+## weight_   |   0.8019   0.1981
 ## 
 ## =================================
 ## Fitted Coefficients:
 ## 
-## Class 2 coefficients:
-## dimension |        1        2        3        4        5
-## coef_     |   0.3943   0.2550   0.5188  -0.0930  -1.3248
+## Class 1 coefficients:
+## index     |        1        2        3        4        5
+## coef_     |   0.4856  -0.4362   0.3123   0.1674  -1.3900
 ## 
-## Class 3 coefficients:
-## dimension |        1        2        3        4        5
-## coef_     |  -0.0218   0.8788   0.0462  -0.0720  -0.8864
+## Class 2 coefficients:
+## index     |        1        2        3        4        5
+## coef_     |   0.1397   0.1618  -0.1207   0.1583  -0.7396
 ## 
 ## =================================
 ## Confidence Intervals:
 ## 
-## Class 2 Confidence Intervals:
-## dimension |              1              2              3              4              5
-## CIs       | (-1.321,1.948) (-1.637,1.589) (-0.699,1.276) (-1.513,1.400) (-2.511,-0.090)
+## Class 1 Confidence Intervals:
+## index     |              1              2              3              4              5
+## CIs       | (-0.759,1.528) (-1.692,0.613) (-0.845,1.288) (-1.361,1.158) (-2.526,-0.632)
 ## 
-## Class 3 Confidence Intervals:
-## dimension |              1              2              3              4              5
-## CIs       | (-2.627,1.046) (-0.885,1.962) (-1.081,1.162) (-1.136,1.289) (-2.507,1.329)</code></pre>
-<pre class="r"><code>summary(fit, infer = inf, dim_search = c(1,3), class_search = c(2))</code></pre>
+## Class 2 Confidence Intervals:
+## index     |              1              2              3              4              5
+## CIs       | (-1.309,1.099) (-0.797,1.408) (-0.921,0.915) (-1.185,1.122) (-2.222,0.267)</code></pre>
+<pre class="r"><code>summary(fit, infer = inf, index = c(1,3), class_index = c(2))</code></pre>
 <pre><code>## Model Summary
 ## =================================
 ## Fitted Weights:
 ## 
-## dimension |        1        2
-## weight_   |   0.6881   0.3119
+## group     |        1        2
+## weight_   |   0.8019   0.1981
 ## 
 ## =================================
 ## Fitted Coefficients:
 ## 
 ## Class 2 coefficients:
-## dimension |        1        3
-## coef_     |   0.3943   0.5188
+## index     |        1        3
+## coef_     |   0.1397  -0.1207
 ## 
 ## =================================
 ## Confidence Intervals:
 ## 
 ## Class 2 Confidence Intervals:
-## dimension |              1              3
-## CIs       | (-1.321,1.948) (-0.699,1.276)</code></pre>
+## index     |              1              3
+## CIs       | (-1.309,1.099) (-0.921,0.915)</code></pre>
 </div>
 <div id="prediction" class="section level3" number="2.0.3">
 <h3><span class="header-section-number">2.0.3</span> Prediction</h3>
 <pre class="r"><code>pred &lt;- predict(fit)  # N x C matrix of predicted probabilities
 head(pred$pred_proba)</code></pre>
 <pre><code>##           [,1]       [,2]      [,3]
-## [1,] 0.4380140 0.12397199 0.4380140
-## [2,] 0.3546774 0.29064524 0.3546774
-## [3,] 0.3684161 0.36841606 0.2631679
-## [4,] 0.4810574 0.03788529 0.4810574
-## [5,] 0.3457250 0.34572503 0.3085499
-## [6,] 0.3977654 0.39776543 0.2044691</code></pre>
+## [1,] 0.4317705 0.13645903 0.4317705
+## [2,] 0.3776958 0.24460838 0.3776958
+## [3,] 0.3506647 0.35066469 0.2986706
+## [4,] 0.4742563 0.05148735 0.4742563
+## [5,] 0.3721068 0.25578634 0.3721068
+## [6,] 0.4047198 0.40471985 0.1905603</code></pre>
 <pre class="r"><code>head(pred$pred)</code></pre>
-<pre><code>## [1] 0 2 0 2 1 1</code></pre>
+<pre><code>## [1] 0 2 0 2 2 1</code></pre>
 </div>
 </div>
 <div id="example-2-drlm-regression-high-dim-l2-domains" class="section level1" number="3">
@@ -1675,49 +1675,56 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05)</code></pre>
 ## Fitted Weights:
 ## 
 ## group     |        1        2
-## weight_   |   0.3760   0.6240
+## weight_   |   0.3714   0.6286
 ## 
 ## =================================
 ## Fitted Plug-in Estimations:
 ## 
-## dimension |        1        2        3        4        5        6        7        8        9       10
-## coef_     |   0.0000   0.0740   0.0195   0.0000   0.1761  -0.0709   0.0491   0.0162   0.2168   0.1199
-## dimension |       11       12       13       14       15       16       17       18       19       20
-## coef_     |   0.0000   0.0000   0.0181  -0.0148   0.0000   0.0000   0.0000   0.0000   0.0000  -0.0098
-## dimension |       21       22       23       24       25       26       27       28       29       30
-## coef_     |   0.0000   0.0000  -0.0137  -0.0086   0.0000   0.0000   0.0000   0.0000   0.0000  -0.0062
-## dimension |       31       32       33       34       35       36       37       38       39       40
-## coef_     |   0.0000  -0.0187   0.0653  -0.0329   0.0000  -0.0843   0.0223   0.0123  -0.1031   0.0000
-## dimension |       41       42       43       44       45       46       47       48       49       50
-## coef_     |   0.0327   0.0000   0.0000   0.0000  -0.0138   0.0000   0.0000   0.0000  -0.0680   0.0000
-## dimension |       51       52       53       54       55       56       57       58       59       60
-## coef_     |   0.0000   0.0000   0.0000   0.0000  -0.0310   0.0875   0.0000   0.0000   0.0481   0.0000
-## dimension |       61       62       63       64       65       66       67       68       69       70
-## coef_     |   0.0000  -0.0498   0.0185   0.0000  -0.0128   0.0000   0.0000   0.0325   0.0000  -0.0565
-## dimension |       71       72       73       74       75       76       77       78       79       80
-## coef_     |   0.0000   0.0158   0.0000   0.0000   0.0000   0.0000   0.0000   0.0251   0.0000   0.1292
-## dimension |       81       82       83       84       85       86       87       88       89       90
-## coef_     |  -0.0908   0.0000   0.0000   0.0222   0.0391   0.0045   0.0000   0.0000   0.0000  -0.0342
-## dimension |       91       92       93       94       95       96       97       98       99      100
-## coef_     |   0.0000   0.0821   0.0617   0.0000   0.0000  -0.1061   0.0000   0.0399  -0.1682  -0.1921
+## index     |        1        2
+## coef_     |  -0.1697  -0.2838
 ## 
 ## =================================
 ## Fitted Debiased Estimations:
 ## 
-## dimension |        1        2
-## coef_     |  -0.2149  -0.3430
+## index     |        1        2
+## coef_     |  -0.1795  -0.3648
 ## 
 ## =================================
 ## Confidence Intervals:
 ## 
-## dimension |              1              2
-## CI        | (-0.5796,0.1517) (-0.8727,0.0901)</code></pre>
+## index     |              1              2
+## CI        | (-0.5529,0.1540) (-0.8724,0.1430)</code></pre>
+<pre class="r"><code>summary(fit, infer=inf, index=1)</code></pre>
+<pre><code>## Model Summary (DRlm-Regression):
+## =================================
+## Fitted Weights:
+## 
+## group     |        1        2
+## weight_   |   0.3714   0.6286
+## 
+## =================================
+## Fitted Plug-in Estimations:
+## 
+## index     |        1
+## coef_     |  -0.1697
+## 
+## =================================
+## Fitted Debiased Estimations:
+## 
+## index     |        1
+## coef_     |  -0.1795
+## 
+## =================================
+## Confidence Intervals:
+## 
+## index     |              1
+## CI        | (-0.5529,0.1540)</code></pre>
 </div>
 <div id="prediction-1" class="section level3" number="3.0.3">
 <h3><span class="header-section-number">3.0.3</span> Prediction</h3>
 <pre class="r"><code>pred &lt;- predict(fit)  # N x 1 vector of predicted values
 head(pred)</code></pre>
-<pre><code>## [1]  0.90410795 -0.05974565 -0.27321412  0.24386180 -0.30405212 -0.29619258</code></pre>
+<pre><code>## [1]  0.92237527 -0.03761117 -0.31645739  0.24705358 -0.29154094 -0.33090591</code></pre>
 </div>
 </div>
 <div id="example-3-drol" class="section level1" number="4">

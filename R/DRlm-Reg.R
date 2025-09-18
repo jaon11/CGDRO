@@ -149,7 +149,8 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
     )
   }
   est_bc <- Reduce(`+`, Map(function(wl, pt) wl * pt$est.debias.vec, w, debias_est))
-  est_plug <- Reduce(`+`, Map(function(wl, pt) wl * pt$beta_init, w, init_est))
+  beta_plug <- Reduce(`+`, Map(function(wl, pt) wl * pt$beta_init, w, init_est))
+  est_plug <- beta_plug %*% loading_mat
 
   return(list(
     L = L, d = d, intercept = intercept,
@@ -160,6 +161,7 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
     weight_ = w,
     est_bc_ = as.numeric(est_bc),
     est_plug_ = as.numeric(est_plug),
+    beta_plug_ = as.numeric(beta_plug),
     init_est = init_est,
     debias_est = debias_est,
     Proj_array = Proj_array,
@@ -177,7 +179,7 @@ fit_drlm_reg <- function(X_list, y_list, loading_mat,
 
 predict_drlm_reg <- function(fit) {
 
-  pred_plugin <- as.numeric(fit$X0_use %*% fit$est_plug_)
+  pred_plugin <- as.numeric(fit$X0_use %*% fit$beta_plug_)
   return(pred_plugin)
 }
 
@@ -250,7 +252,7 @@ infer_drlm_reg <- function(fit, M = 500, alpha = 0.05,
 # Summary
 # =====================================================================
 
-summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
+summary_drlm_reg <- function(fit, infer = NULL, index = NULL) {
   width <- 8; per_row_coef <- 10; per_row_ci <- 5; digits_coef <- 4; digits_ci <- 4
 
   # ---- basic checks ----
@@ -296,7 +298,7 @@ summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
     }
   }
 
-  dim_idx0 <- normalize_indices(dim_search, 1L, n_loading, "dim_search")
+  dim_idx0 <- normalize_indices(index, 1L, n_loading, "index")
 
   # ---- print ----
   cat("Model Summary (DRlm-Regression):\n")
@@ -315,8 +317,7 @@ summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
 
   # Plug-in estimates (all loadings)
   cat("Fitted Plug-in Estimations:\n\n")
-  all_idx0 <- seq_len(fit$d) - 1L
-  print_chunks("coef_", all_idx0, est_plug,
+  print_chunks("coef_", dim_idx0, est_plug,
                width = width, per_row = per_row_coef,
                fmt = sprintf("%%%d.%df", width, digits_coef),
                header_label = "index")
@@ -324,7 +325,7 @@ summary_drlm_reg <- function(fit, infer = NULL, dim_search = NULL) {
 
   cat("=================================\n")
 
-  # Debiased estimates (subset by dim_search)
+  # Debiased estimates (subset by index)
   cat("Fitted Debiased Estimations:\n\n")
   print_chunks("coef_", dim_idx0, est_bc[dim_idx0 + 1L],
                width = width, per_row = per_row_coef,
