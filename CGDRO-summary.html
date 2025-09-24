@@ -11,7 +11,7 @@
 
 <meta name="author" content="Ziang Fu" />
 
-<meta name="date" content="2025-09-17" />
+<meta name="date" content="2025-09-24" />
 
 <title>CGDRO — Summary Report</title>
 
@@ -1481,7 +1481,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">CGDRO — Summary Report</h1>
 <h4 class="author">Ziang Fu</h4>
-<h4 class="date">2025-09-17</h4>
+<h4 class="date">2025-09-24</h4>
 
 </div>
 
@@ -1567,11 +1567,11 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag
 ## 
 ## Class 1 Confidence Intervals:
 ## index     |              1              2              3              4              5
-## CIs       | (-0.759,1.528) (-1.692,0.613) (-0.845,1.288) (-1.361,1.158) (-2.526,-0.632)
+## CIs       | (-0.727,1.410) (-1.852,0.938) (-0.903,0.999) (-1.637,1.173) (-2.352,-0.598)
 ## 
 ## Class 2 Confidence Intervals:
 ## index     |              1              2              3              4              5
-## CIs       | (-1.309,1.099) (-0.797,1.408) (-0.921,0.915) (-1.185,1.122) (-2.222,0.267)</code></pre>
+## CIs       | (-1.319,1.090) (-0.689,1.446) (-1.144,0.696) (-0.845,1.060) (-2.258,0.289)</code></pre>
 <pre class="r"><code>summary(fit, infer = inf, index = c(1,3), class_index = c(2))</code></pre>
 <pre><code>## Model Summary
 ## =================================
@@ -1592,7 +1592,7 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag
 ## 
 ## Class 2 Confidence Intervals:
 ## index     |              1              3
-## CIs       | (-1.309,1.099) (-0.921,0.915)</code></pre>
+## CIs       | (-1.319,1.090) (-1.144,0.696)</code></pre>
 </div>
 <div id="prediction" class="section level3" number="2.0.3">
 <h3><span class="header-section-number">2.0.3</span> Prediction</h3>
@@ -1670,7 +1670,7 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05)</code></pre>
 <div id="results-1" class="section level3" number="3.0.2">
 <h3><span class="header-section-number">3.0.2</span> Results</h3>
 <pre class="r"><code>summary(fit, infer=inf)</code></pre>
-<pre><code>## Model Summary (DRlm-Regression):
+<pre><code>## Model Summary:
 ## =================================
 ## Fitted Weights:
 ## 
@@ -1695,7 +1695,7 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05)</code></pre>
 ## index     |              1              2
 ## CI        | (-0.5529,0.1540) (-0.8724,0.1430)</code></pre>
 <pre class="r"><code>summary(fit, infer=inf, index=1)</code></pre>
-<pre><code>## Model Summary (DRlm-Regression):
+<pre><code>## Model Summary:
 ## =================================
 ## Fitted Weights:
 ## 

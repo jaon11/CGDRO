@@ -301,7 +301,7 @@ summary_drlm_reg <- function(fit, infer = NULL, index = NULL) {
   dim_idx0 <- normalize_indices(index, 1L, n_loading, "index")
 
   # ---- print ----
-  cat("Model Summary (DRlm-Regression):\n")
+  cat("Model Summary:\n")
   cat("=================================\n")
 
   # Weights
