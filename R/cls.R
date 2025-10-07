@@ -43,7 +43,7 @@ source("R/Utility.R")
 #' summary(fit, infer=inf, index = c(1,3,5), class_index = c(2))
 #' predict(fit)
 #' @export
-fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
+fit_cls <- function(X_list, y_list, X0 = NULL,
                          f_learner = "xgb", w_learner = "linear",
                          split = TRUE, max_iter = 1000, tol = 1e-6, check_dual = FALSE,
                          verbose = FALSE, seed = 123) {
@@ -61,7 +61,7 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
   density_params_list <- replicate(L, NULL, simplify = FALSE)
 
   # check arguments
-  check_arg_drlm_cls_fit(X_list, y_list, X0, f_learner, w_learner,
+  check_arg_cls_fit(X_list, y_list, X0, f_learner, w_learner,
                          split, max_iter, tol, check_dual, verbose, seed)
 
   # learners
@@ -153,16 +153,16 @@ fit_drlm_cls <- function(X_list, y_list, X0 = NULL,
     coef_ = theta_array, weight_ = gamma, d = d, K = K, num_class = num_class,
     X0 = X0, X_list = X_list, y_list = y_list, L = L,
     probaX_list = probaX_list, probaX0_list = probaX0_list, omegaX_list = omegaX_list,
-    mu_list = mu_list, log_message = log_message, family = "drlm_cls"
+    mu_list = mu_list, log_message = log_message, family = "cls"
   )
 }
 
 # =====================================================================
 # Predict on target
 # =====================================================================
-#' @param fit a fitted model returned by fit_drlm_cls
+#' @param fit a fitted model returned by fit_cls
 #' @return a list containing predicted probabilities and predicted labels
-predict_drlm_cls <- function(fit) {
+predict_cls <- function(fit) {
   theta_mat <- matrix(fit$coef_, nrow = fit$d, byrow = FALSE)
   logits <- fit$X0 %*% theta_mat
   logits_max <- apply(logits, 1, max)
@@ -177,17 +177,17 @@ predict_drlm_cls <- function(fit) {
 # =====================================================================
 # Inference
 # =====================================================================
-#' @param fit a fitted model returned by fit_drlm_cls
+#' @param fit a fitted model returned by fit_cls
 #' @param M number of resamples (default: 200)
 #' @param alpha significance level for (1-alpha) confidence intervals (default: 0.05)
 #' @param parallel whether to use parallel computing (default: FALSE)
 #' @param n_workers number of workers for parallel computing (default: 4)
 #' @param diag whether to use diagonal approximation for covariance estimation (default: TRUE)
 #' @return a list containing M resampled estimates and confidence intervals
-infer_drlm_cls <- function(fit, M = 200, alpha = 0.05,
+infer_cls <- function(fit, M = 200, alpha = 0.05,
                            parallel = FALSE, n_workers = 4, diag = TRUE) {
   # check arguments
-  check_arg_drlm_cls_inf(fit, M, alpha, parallel, n_workers, diag)
+  check_arg_cls_inf(fit, M, alpha, parallel, n_workers, diag)
 
   caches <- .prepare_inference(fit, diag = diag)
   z <- qnorm(1 - alpha/2)
@@ -237,7 +237,7 @@ infer_drlm_cls <- function(fit, M = 200, alpha = 0.05,
 # =====================================================================
 
 
-summary_drlm_cls <- function(fit, infer = NULL, index = NULL, class_index = NULL) {
+summary_cls <- function(fit, infer = NULL, index = NULL, class_index = NULL) {
   width = 8; per_row_coef = 10; per_row_ci = 5; digits_coef = 4; digits_ci = 3
   # ---- basic checks ----
   if (is.null(fit$coef_) || is.null(fit$weight_)) {
@@ -281,7 +281,7 @@ summary_drlm_cls <- function(fit, infer = NULL, index = NULL, class_index = NULL
   cat("=================================\n")
 
   # ---- weights ----
-  cat("Fitted Weights:\n\n")
+  cat("CGDRO Aggregated Weights:\n\n")
   w <- as.numeric(fit$weight_)
   group_idx0 <- seq_along(w) - 1L
   print_chunks("weight_", group_idx0, w, width = width, per_row = 10, fmt = sprintf("%%%d.%df", width, digits_coef), header_label = "group")
@@ -289,7 +289,7 @@ summary_drlm_cls <- function(fit, infer = NULL, index = NULL, class_index = NULL
 
   # ---- coefficients ----
   cat("=================================\n")
-  cat("Fitted Coefficients:\n\n")
+  cat("CGDRO Aggregated Estimators:\n\n")
   coef_mat <- matrix(fit$coef_, nrow = d, byrow = FALSE)
   dim_idx0 <- normalize_indices(index, 1L, d, "index")
 

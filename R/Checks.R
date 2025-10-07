@@ -1,4 +1,4 @@
-check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, f_learner = NULL, w_learner = NULL,
+check_arg_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, f_learner = NULL, w_learner = NULL,
                                split = NULL, max_iter = NULL, tol = NULL, check_dual = NULL, verbose = NULL,
                                seed = NULL){
   if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
@@ -24,7 +24,7 @@ check_arg_drlm_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, f_le
 }
 
 
-check_arg_drlm_cls_inf <- function(fit = NULL, M = NULL, alpha = NULL, parallel = NULL, n_workers = NULL, diag = NULL){
+check_arg_cls_inf <- function(fit = NULL, M = NULL, alpha = NULL, parallel = NULL, n_workers = NULL, diag = NULL){
   if(is.null(fit) || !is.list(fit)) stop("fit must be a list returned by fit_drlm_cls")
   if(is.null(M) || !is.numeric(M) || length(M)!=1 || M<=0 || M!=round(M)) stop("M must be a positive integer")
   if(is.null(alpha) || !is.numeric(alpha) || length(alpha)!=1 || alpha<=0 || alpha>=1) stop("alpha must be a numeric value in (0,1)")
@@ -33,7 +33,32 @@ check_arg_drlm_cls_inf <- function(fit = NULL, M = NULL, alpha = NULL, parallel 
   if(is.null(diag) || !is.logical(diag)) stop("diag must be TRUE or FALSE")
 }
 
-check_arg_drlm_reg <- function(X_list = NULL, y_list = NULL, loading_mat = NULL, X0 = NULL, intercept = NULL,
+
+check_arg_reg_ld <- function(X_list = NULL, y_list = NULL, X0 = NULL, loss_type = NULL, intercept = NULL,
+                                delta = NULL, verbose = NULL){
+  if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
+  if(is.null(y_list) || (!is.list(y_list))) stop("y_list must be a list")
+  if(length(X_list) != length(y_list)) stop("X_list and y_list must have the same length")
+  if(length(unique(sapply(X_list, FUN=ncol))) != 1) stop("each group should have the same dimension of covariates")
+  d = unique(sapply(X_list, FUN=ncol))
+  if(any(sapply(X_list, nrow)!= sapply(y_list, length))) stop("The group should match in Xlist and Ylist:
+                                                       they should have the same number of observations for each group")
+  if(!is.null(X0)){
+    if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
+  }
+  if(is.null(loss_type) || !(loss_type %in% c("reward", "squaredloss", "regret"))) stop("loss_type must be one of 'reward', 'squaredloss', 'regret'")
+  if(is.null(intercept) || !is.logical(intercept)) stop("intercept must be TRUE or FALSE")
+  if(!is.null(delta)){
+    if(!is.numeric(delta) || length(delta)!=1 || delta>0) stop("delta must be a non-positive numeric value")
+  }
+  if(is.null(verbose) || !is.logical(verbose)) stop("verbose must be TRUE or FALSE")
+
+}
+
+
+
+
+check_arg_reg_hd <- function(X_list = NULL, y_list = NULL, index = NULL, X0 = NULL, intercept = NULL,
                                intercept_loading = NULL, delta = NULL, lambda = NULL, verbose = NULL){
   if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
   if(is.null(y_list) || (!is.list(y_list))) stop("y_list must be a list")
@@ -45,9 +70,10 @@ check_arg_drlm_reg <- function(X_list = NULL, y_list = NULL, loading_mat = NULL,
   if(!is.null(X0)){
     if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
   }
-  if(is.null(loading_mat) || !is.numeric(loading_mat)) stop("loading must be a numeric matrix")
-  if(p != nrow(loading_mat)) stop("ncol(X) and nrow(loading) must match")
-
+  # index is a vector
+  if(is.null(index) || !is.numeric(index) || any(index!=round(index)) || any(index<1) || any(index>d) || length(unique(index))!=length(index)){
+    stop("index must be a vector of unique integers between 1 and d (the dimension of covariates)")
+  }
   if(is.null(intercept) || !is.logical(intercept)) stop("intercept must be TRUE or FALSE")
   if(is.null(intercept_loading) || !is.logical(intercept_loading)) stop("intercept_loading must be TRUE or FALSE")
   if(!is.null(delta)){
@@ -62,8 +88,8 @@ check_arg_drlm_reg <- function(X_list = NULL, y_list = NULL, loading_mat = NULL,
 
 }
 
-check_arg_drlm_reg_inf <- function(fit = NULL, M = NULL, alpha = NULL, tau = NULL, alpha_thres = NULL, threshold = NULL, delta = NULL){
-  if(is.null(fit) || !is.list(fit)) stop("fit must be a list returned by fit_drlm_reg")
+check_arg_reg_inf <- function(fit = NULL, M = NULL, alpha = NULL, tau = NULL, alpha_thres = NULL, threshold = NULL, delta = NULL){
+  if(is.null(fit) || !is.list(fit)) stop("fit must be a list returned by fit_reg_lb or fit_reg_hd")
   if(is.null(M) || !is.numeric(M) || length(M)!=1 || M<=0 || M!=round(M)) stop("M must be a positive integer")
   if(is.null(alpha) || !is.numeric(alpha) || length(alpha)!=1 || alpha<=0 || alpha>=1) stop("alpha must be a numeric value in (0,1)")
   if(is.null(tau) || !is.numeric(tau) || length(tau)!=1 || tau<=0) stop("tau must be a positive numeric value")
@@ -74,7 +100,7 @@ check_arg_drlm_reg_inf <- function(fit = NULL, M = NULL, alpha = NULL, tau = NUL
   }
 }
 
-check_arg_drol_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL,
+check_arg_reg_ml_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, loss_type = NULL,
                           f_learner = NULL, w_learner = NULL,
                           bias_correct = NULL, priors = NULL,
                           ridge = NULL, solver = NULL,
@@ -89,6 +115,7 @@ check_arg_drol_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL,
   if(!is.null(X0)){
     if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
   }
+  if(is.null(loss_type) || !(loss_type %in% c("reward", "squaredloss", "regret"))) stop("loss_type must be one of 'reward', 'squaredloss', 'regret'")
   if(is.null(f_learner) || !(f_learner %in% c("linear", "xgb", "xgb.cv"))) stop("f_learner must be one of 'linear', 'xgb', 'xgb.cv'")
   if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","kliep"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','kliep'")
   if(is.null(bias_correct) || !is.logical(bias_correct)) stop("bias_correct must be TRUE or FALSE")

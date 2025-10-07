@@ -739,36 +739,15 @@ train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
   sum(r * r) / denom
 }
 
-.opt_weight <- function(Gamma, delta = 0) {
-  L <- ncol(Gamma)
-  ed <- eigen((Gamma + t(Gamma)) / 2, symmetric = TRUE)
-  lam <- pmax(ed$values, 1e-3)
-  Gamma_pos <- ed$vectors %*% diag(lam, nrow = L) %*% t(ed$vectors)
 
-  v <- CVXR::Variable(L)
-  G <- Gamma_pos + delta * diag(L)
-  prob <- CVXR::Problem(
-    CVXR::Minimize(CVXR::quad_form(v, G)),
-    list(CVXR::sum_entries(v) == 1, v >= 0)
-  )
-  res <- try(CVXR::solve(prob, solver = "ECOS"), silent = TRUE)
-  if (inherits(res, "try-error") || res$status %in% c("infeasible", "unbounded")) {
-    res <- CVXR::solve(prob, solver = "SCS")
-  }
-  w <- as.numeric(res$getValue(v))
-  w[is.na(w)] <- 0
-  w[w < 0] <- 0
-  s <- sum(w); if (s <= 0) stop("Weight optimization failed.")
-  w / s
-}
-
-opt_weight<-function(Gamma,delta=0){
+.opt_weight<-function(Gamma, delta=0, loss_type='reward', dev_vec=NULL){
   ## Purpose: Compute Ridge-type weight vector
   ## Returns: weight:  the minimizer \eqn{\gamma}
   ##          reward:  the value of penalized reward
   ## ----------------------------------------------------
   ## Arguments: Gamma: regression covariance matrix, of dimension \eqn{L} x \eqn{L}
   ##            delta the ridge penalty level, non-positive.
+  ##            loss_type the type of objective function, either 'reward', 'squaredloss', or 'regret' (Default = 'reward')
   ##            report.reward the reward is computed or not (Default = `TRUE`)
   ## ----------------------------------------------------
 
@@ -781,8 +760,23 @@ opt_weight<-function(Gamma,delta=0){
   for(ind in 1:L){
     Diag.matrix[ind,ind]<-max(Diag.matrix[ind,ind],0.001)
   }
-  Gamma.positive<-eigen(Gamma)$vectors%*%Diag.matrix%*%t(eigen(Gamma)$vectors)
-  objective <- Minimize(quad_form(v,Gamma.positive+diag(delta,L)))
+  Gamma_positive<-eigen(Gamma)$vectors%*%Diag.matrix%*%t(eigen(Gamma)$vectors)
+  Gamma_diag<-(diag(Gamma))
+  if (loss_type == "reward") {
+    objective <- Minimize(quad_form(v, Gamma_positive + diag(delta, L)))
+  } else if (loss_type == "squaredloss") {
+    objective <- Minimize(
+      quad_form(v, Gamma_positive + diag(delta, L)) -
+        t(v) %*% (Gamma_diag + dev_vec)
+    )
+  } else if (loss_type == "regret") {
+    objective <- Minimize(
+      quad_form(v, Gamma_positive + diag(delta, L)) -
+        t(v) %*% Gamma_diag
+    )
+  } else {
+    stop("Unsupported loss_type: ", loss_type)
+  }
   constraints <- list(v >= 0, sum(v)== 1)
   prob.weight<- Problem(objective, constraints)
   if(is_dcp(prob.weight)){
@@ -841,7 +835,114 @@ opt_weight<-function(Gamma,delta=0){
   out
 }
 
-.compute_Var_Gamma <- function(fit, tau = 0.2) {
+.compute_Var_Gamma_ld <- function(fit, tau = 0.2, ridge = 1e-8) {
+  L  <- fit$L
+  p  <- fit$d                     # this is d (+1 if intercept=TRUE) from fit_reg_ld
+  use_intercept <- isTRUE(fit$intercept)
+
+  gen_dim   <- L * (L + 1) / 2
+  Var_Gamma <- matrix(NA_real_, gen_dim, gen_dim)
+
+  # sizes
+  ns <- vapply(fit$X_list, nrow, integer(1))
+
+  # Target design already prepared by fit_reg_ld (with/without intercept)
+  X0_use <- fit$X0_use
+  N0     <- nrow(X0_use)
+
+  # Target second moment (p x p)
+  M0 <- crossprod(X0_use) / N0
+
+  # helpers
+  get_X_aug <- function(X) if (use_intercept) cbind(1, X) else X
+  inv_M <- function(M) {
+    # regularized inverse of a second-moment matrix
+    solve(M + ridge * diag(nrow(M)))
+  }
+
+  # Pull what we need once
+  beta_list <- lapply(fit$init_est, `[[`, "beta_init")  # each is length p
+
+  for (k1 in 1:L) for (l1 in k1:L) {
+    for (k2 in 1:L) for (l2 in k2:L) {
+      ind1 <- .index_map(L, l1, k1)
+      ind2 <- .index_map(L, l2, k2)
+
+      # Augmented designs in p-dim space
+      X_l1_aug <- get_X_aug(fit$X_list[[l1]])  # n_l1 x p
+      X_k1_aug <- get_X_aug(fit$X_list[[k1]])  # n_k1 x p
+      n_l1 <- nrow(X_l1_aug); n_k1 <- nrow(X_k1_aug)
+
+      # Per-source second moments (p x p)
+      M_l1 <- crossprod(X_l1_aug) / n_l1
+      M_k1 <- crossprod(X_k1_aug) / n_k1
+
+      # Inverses (regularized)
+      iM_l1 <- inv_M(M_l1)
+      iM_k1 <- inv_M(M_k1)
+
+      # Coefs (length p), residual variances (scalars) from fit
+      beta_l1 <- beta_list[[l1]]
+      beta_k1 <- beta_list[[k1]]
+      beta_l2 <- beta_list[[l2]]
+      beta_k2 <- beta_list[[k2]]
+
+      dev_l1 <- fit$dev_vec[l1]
+      dev_k1 <- fit$dev_vec[k1]
+
+      # Projections (p-vectors)
+      Proj1 <- iM_l1 %*% M0 %*% beta_k1
+      Proj3 <- iM_k1 %*% M0 %*% beta_l1
+
+      # Conditionally needed inverses for l2/k2
+      Proj2_l1 <- if (l2 == l1) {
+        X_l2_aug <- get_X_aug(fit$X_list[[l2]])
+        iM_l2    <- inv_M(crossprod(X_l2_aug) / nrow(X_l2_aug))
+        iM_l2 %*% M0 %*% beta_k2
+      } else rep(0, p)
+
+      Proj2_k1 <- if (k2 == l1) {
+        X_k2_aug <- get_X_aug(fit$X_list[[k2]])
+        iM_k2    <- inv_M(crossprod(X_k2_aug) / nrow(X_k2_aug))
+        iM_k2 %*% M0 %*% beta_l2
+      } else rep(0, p)
+
+      Proj4_l1 <- if (l2 == k1) {
+        X_l2_aug <- get_X_aug(fit$X_list[[l2]])
+        iM_l2    <- inv_M(crossprod(X_l2_aug) / nrow(X_l2_aug))
+        iM_l2 %*% M0 %*% beta_k2
+      } else rep(0, p)
+
+      Proj4_k1 <- if (k2 == k1) {
+        X_k2_aug <- get_X_aug(fit$X_list[[k2]])
+        iM_k2    <- inv_M(crossprod(X_k2_aug) / nrow(X_k2_aug))
+        iM_k2 %*% M0 %*% beta_l2
+      } else rep(0, p)
+
+      # Two dev-weighted quadratic pieces (use second moments in p-dim)
+      val1 <- (dev_l1 / n_l1) * as.numeric(t(Proj1) %*% M_l1 %*% (Proj2_l1 + Proj2_k1))
+      val2 <- (dev_k1 / n_k1) * as.numeric(t(Proj3) %*% M_k1 %*% (Proj4_l1 + Proj4_k1))
+
+      # Covariance term on the target sample (preds use X0_use and p-dim betas)
+      P1 <- as.numeric(X0_use %*% beta_l1) * as.numeric(X0_use %*% beta_k1)
+      P2 <- as.numeric(X0_use %*% beta_l2) * as.numeric(X0_use %*% beta_k2)
+      val3 <- mean((P1 - mean(P1)) * (P2 - mean(P2))) / N0
+
+      Var_Gamma[ind1, ind2] <- val1 + val2 + val3
+    }
+  }
+
+  # Symmetrize just in case of small numeric asymmetry
+  Var_Gamma <- (Var_Gamma + t(Var_Gamma)) / 2
+
+  # Diagonal regularization
+  diag_correction <- pmax(tau * diag(Var_Gamma), 1.0 / min(ns))
+  Var_Gamma <- Var_Gamma + diag(diag_correction, nrow(Var_Gamma))
+
+  Var_Gamma
+}
+
+.compute_Var_Gamma_hd <- function(fit, tau = 0.2) {
   L <- fit$L
   d <- fit$d
   gen_dim <- L * (L + 1) / 2

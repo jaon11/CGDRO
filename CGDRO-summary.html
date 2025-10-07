@@ -11,7 +11,7 @@
 
 <meta name="author" content="Ziang Fu" />
 
-<meta name="date" content="2025-09-24" />
+<meta name="date" content="2025-10-07" />
 
 <title>CGDRO — Summary Report</title>
 
@@ -1481,7 +1481,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">CGDRO — Summary Report</h1>
 <h4 class="author">Ziang Fu</h4>
-<h4 class="date">2025-09-24</h4>
+<h4 class="date">2025-10-07</h4>
 
 </div>
 
@@ -1491,13 +1491,14 @@ border-radius: 0px;
 <p>This report template summarizes <strong>CGDRO</strong> fits.</p>
 <pre class="r"><code>source(&quot;R/Utility.R&quot;) 
 source(&quot;R/Checks.R&quot;)
-source(&quot;R/DRlm-Cls.R&quot;)
-source(&quot;R/DRlm-Reg.R&quot;)
-source(&quot;R/DRoL.R&quot;)     
+source(&quot;R/cls.R&quot;)
+source(&quot;R/reg_ld.R&quot;)
+source(&quot;R/reg_hd.R&quot;)
+source(&quot;R/reg_ml.R&quot;)     
 source(&quot;R/main.R&quot;)</code></pre>
 </div>
-<div id="example-1-drlm-classification-l2-groups-c3-k2-classes" class="section level1" number="2">
-<h1><span class="header-section-number">2</span> Example 1 — DRlm:
+<div id="example-1-classification-l2-groups-c3-k2-classes" class="section level1" number="2">
+<h1><span class="header-section-number">2</span> Example 1 —
 Classification (L=2 groups, C=3 (K=2) classes)</h1>
 <pre class="r"><code>set.seed(111)
 
@@ -1538,7 +1539,7 @@ ylist &lt;- lapply(probs_list, function(P) {
 <h3><span class="header-section-number">2.0.1</span> Implementation</h3>
 <pre class="r"><code>## fit cgdro
 fit &lt;- cgdro(Xlist, ylist, X0,
-             family = &quot;drlm_cls&quot;, f_learner = &quot;linear&quot;, w_learner = &quot;linear&quot;)
+             family = &quot;cls&quot;, f_learner = &quot;linear&quot;, w_learner = &quot;linear&quot;)
 inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag = TRUE)</code></pre>
 </div>
 <div id="results" class="section level3" number="2.0.2">
@@ -1546,13 +1547,13 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag
 <pre class="r"><code>summary(fit, infer = inf)</code></pre>
 <pre><code>## Model Summary
 ## =================================
-## Fitted Weights:
+## CGDRO Aggregated Weights:
 ## 
 ## group     |        1        2
 ## weight_   |   0.8019   0.1981
 ## 
 ## =================================
-## Fitted Coefficients:
+## CGDRO Aggregated Estimators:
 ## 
 ## Class 1 coefficients:
 ## index     |        1        2        3        4        5
@@ -1567,21 +1568,21 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag
 ## 
 ## Class 1 Confidence Intervals:
 ## index     |              1              2              3              4              5
-## CIs       | (-0.727,1.410) (-1.852,0.938) (-0.903,0.999) (-1.637,1.173) (-2.352,-0.598)
+## CIs       | (-0.765,1.409) (-1.274,0.568) (-0.943,1.044) (-1.202,1.036) (-2.391,-0.668)
 ## 
 ## Class 2 Confidence Intervals:
 ## index     |              1              2              3              4              5
-## CIs       | (-1.319,1.090) (-0.689,1.446) (-1.144,0.696) (-0.845,1.060) (-2.258,0.289)</code></pre>
+## CIs       | (-1.164,0.919) (-0.844,1.056) (-1.151,0.612) (-0.798,1.150) (-2.164,-0.090)</code></pre>
 <pre class="r"><code>summary(fit, infer = inf, index = c(1,3), class_index = c(2))</code></pre>
 <pre><code>## Model Summary
 ## =================================
-## Fitted Weights:
+## CGDRO Aggregated Weights:
 ## 
 ## group     |        1        2
 ## weight_   |   0.8019   0.1981
 ## 
 ## =================================
-## Fitted Coefficients:
+## CGDRO Aggregated Estimators:
 ## 
 ## Class 2 coefficients:
 ## index     |        1        3
@@ -1592,7 +1593,7 @@ inf &lt;- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag
 ## 
 ## Class 2 Confidence Intervals:
 ## index     |              1              3
-## CIs       | (-1.319,1.090) (-1.144,0.696)</code></pre>
+## CIs       | (-1.164,0.919) (-1.151,0.612)</code></pre>
 </div>
 <div id="prediction" class="section level3" number="2.0.3">
 <h3><span class="header-section-number">2.0.3</span> Prediction</h3>
@@ -1609,9 +1610,76 @@ head(pred$pred_proba)</code></pre>
 <pre><code>## [1] 0 2 0 2 2 1</code></pre>
 </div>
 </div>
-<div id="example-2-drlm-regression-high-dim-l2-domains" class="section level1" number="3">
-<h1><span class="header-section-number">3</span> Example 2 — DRlm:
-Regression (High-dim, L=2 domains)</h1>
+<div id="example-2-regression-low-dim-l2-domains" class="section level1" number="3">
+<h1><span class="header-section-number">3</span> Example 2 — Regression
+(Low-dim, L=2 domains)</h1>
+<pre class="r"><code>set.seed(0)
+L &lt;- 2
+p &lt;- 5
+
+# Source distributions
+mean_source &lt;- rep(0, p)
+cov_source  &lt;- diag(p)
+
+# --- Group 1 ---
+n1 &lt;- 100
+X1 &lt;- MASS::mvrnorm(n1, mu = mean_source, Sigma = cov_source)
+b1 &lt;- rep(0, p); b1[1:5] &lt;- (1:5) / 20
+Y1 &lt;- as.numeric(X1 %*% b1 + rnorm(n1))
+
+# --- Group 2 ---
+n2 &lt;- 100
+X2 &lt;- MASS::mvrnorm(n2, mu = mean_source, Sigma = cov_source)
+b2 &lt;- rev(2:6) / 20   # same as np.arange(6,1,-1)/20
+Y2 &lt;- as.numeric(X2 %*% b2 + rnorm(n2))
+
+# --- Target (covariate shift: here same cov as sources) ---
+n0 &lt;- 100
+X0 &lt;- MASS::mvrnorm(n0, mu = rep(0, p), Sigma = cov_source)
+
+Xlist &lt;- list(X1, X2)
+Ylist &lt;- list(Y1, Y2)</code></pre>
+<div id="implementation-1" class="section level3" number="3.0.1">
+<h3><span class="header-section-number">3.0.1</span> Implementation</h3>
+<pre class="r"><code>fit &lt;- cgdro(Xlist, Ylist, X0, loss_type = &quot;reward&quot;,
+             family = &quot;reg_ld&quot;,  intercept = TRUE,
+             delta = 0,  verbose = FALSE)
+inf &lt;- infer(fit, M = 200, alpha = 0.05)</code></pre>
+</div>
+<div id="results-1" class="section level3" number="3.0.2">
+<h3><span class="header-section-number">3.0.2</span> Results</h3>
+<pre class="r"><code>summary(fit, infer=inf)</code></pre>
+<pre><code>## Model Summary:
+## =================================
+## CGDRO Aggregated Weights:
+## 
+## group     |        1        2
+## weight_   |   0.1504   0.8496
+## 
+## =================================
+## CGDRO Aggregated Estimators:
+## 
+## index     |        1        2        3        4        5        6
+## coef_     |  -0.0298   0.2061   0.1120   0.1488   0.2929  -0.0708
+## 
+## =================================
+## Confidence Intervals:
+## 
+## index     |              1              2              3              4              5
+## CI        | (-0.2720,0.1694) (-0.0854,0.4156) (-0.0763,0.3627) (-0.0401,0.3351) (0.0726,0.5904)
+## index     |              6
+## CI        | (-0.2931,0.2510)</code></pre>
+</div>
+<div id="prediction-1" class="section level3" number="3.0.3">
+<h3><span class="header-section-number">3.0.3</span> Prediction</h3>
+<pre class="r"><code>pred &lt;- predict(fit)  # N x 1 vector of predicted values
+head(pred)</code></pre>
+<pre><code>## [1]  0.03302326  0.49016831  0.10748854  0.60407334 -0.35523740 -0.02435019</code></pre>
+</div>
+</div>
+<div id="example-3-regression-high-dim-l2-domains" class="section level1" number="4">
+<h1><span class="header-section-number">4</span> Example 3 — Regression
+(High-dim, L=2 domains)</h1>
 <pre class="r"><code>set.seed(111)
 ## number of groups
 L=2
@@ -1659,76 +1727,52 @@ X0 = MASS::mvrnorm(n0, mu=mean0, Sigma=cov0)
 loading.mat = matrix(0, nrow=100, ncol=2) # dimension p=100
 loading.mat[96:100, 1] = 0.4
 loading.mat[99:100, 2] = 0.8</code></pre>
-<div id="implementation-1" class="section level3" number="3.0.1">
-<h3><span class="header-section-number">3.0.1</span> Implementation</h3>
+<div id="implementation-2" class="section level3" number="4.0.1">
+<h3><span class="header-section-number">4.0.1</span> Implementation</h3>
 <pre class="r"><code>fit &lt;- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
-             family = &quot;drlm_reg&quot;, 
-             loading_mat = loading.mat, intercept = FALSE,
+             family = &quot;reg_hd&quot;, 
+             index = c(1,10,45,99), intercept = FALSE,
              delta = 0, lambda = &quot;CV.min&quot;, verbose = FALSE)
 inf &lt;- infer(fit, M = 200, alpha = 0.05)</code></pre>
 </div>
-<div id="results-1" class="section level3" number="3.0.2">
-<h3><span class="header-section-number">3.0.2</span> Results</h3>
+<div id="results-2" class="section level3" number="4.0.2">
+<h3><span class="header-section-number">4.0.2</span> Results</h3>
 <pre class="r"><code>summary(fit, infer=inf)</code></pre>
 <pre><code>## Model Summary:
 ## =================================
-## Fitted Weights:
+## CGDRO Aggregated Weights:
 ## 
 ## group     |        1        2
 ## weight_   |   0.3714   0.6286
 ## 
 ## =================================
-## Fitted Plug-in Estimations:
+## Plug-in Estimators:
 ## 
-## index     |        1        2
-## coef_     |  -0.1697  -0.2838
-## 
-## =================================
-## Fitted Debiased Estimations:
-## 
-## index     |        1        2
-## coef_     |  -0.1795  -0.3648
+## index     |        1        2        3        4
+## coef_     |   0.0709   0.0109   0.0000  -0.2173
 ## 
 ## =================================
-## Confidence Intervals:
+## Debiased Estimators:
 ## 
-## index     |              1              2
-## CI        | (-0.5529,0.1540) (-0.8724,0.1430)</code></pre>
-<pre class="r"><code>summary(fit, infer=inf, index=1)</code></pre>
-<pre><code>## Model Summary:
-## =================================
-## Fitted Weights:
-## 
-## group     |        1        2
-## weight_   |   0.3714   0.6286
-## 
-## =================================
-## Fitted Plug-in Estimations:
-## 
-## index     |        1
-## coef_     |  -0.1697
-## 
-## =================================
-## Fitted Debiased Estimations:
-## 
-## index     |        1
-## coef_     |  -0.1795
+## index     |        1        2        3        4
+## coef_     |   0.3027   0.2089   0.1173  -0.2684
 ## 
 ## =================================
 ## Confidence Intervals:
 ## 
-## index     |              1
-## CI        | (-0.5529,0.1540)</code></pre>
+## index     |              1              2              3              4
+## CI        | (-0.4053,0.9135) (-0.4819,0.8022) (-0.3548,0.6317) (-0.7684,0.2941)</code></pre>
 </div>
-<div id="prediction-1" class="section level3" number="3.0.3">
-<h3><span class="header-section-number">3.0.3</span> Prediction</h3>
+<div id="prediction-2" class="section level3" number="4.0.3">
+<h3><span class="header-section-number">4.0.3</span> Prediction</h3>
 <pre class="r"><code>pred &lt;- predict(fit)  # N x 1 vector of predicted values
 head(pred)</code></pre>
 <pre><code>## [1]  0.92237527 -0.03761117 -0.31645739  0.24705358 -0.29154094 -0.33090591</code></pre>
 </div>
 </div>
-<div id="example-3-drol" class="section level1" number="4">
-<h1><span class="header-section-number">4</span> Example 3 — DRoL</h1>
+<div id="example-4-regression-ml-l2-domains" class="section level1" number="5">
+<h1><span class="header-section-number">5</span> Example 4 — Regression
+(ML, L=2 domains)</h1>
 <pre class="r"><code>set.seed(111)
 L &lt;- 2; p &lt;- 5
 mean_source &lt;- rep(0, p); cov_source &lt;- diag(p)
@@ -1741,22 +1785,22 @@ Y1 &lt;- (X1^3 %*% b1) + sin(X1 %*% b1) + pmin(pmax(exp(X1 %*% b1),0),1) + rnorm
 Y2 &lt;- (X2^3 %*% b2) + sin(X2 %*% b2) + pmin(pmax(exp(X2 %*% b2),0),1) + rnorm(n2)
 X0 &lt;- MASS::mvrnorm(n0, rep(0,p), cov_source)
 Xlist &lt;- list(X1, X2); Ylist &lt;- list(Y1, Y2)</code></pre>
-<div id="implementation-2" class="section level3" number="4.0.1">
-<h3><span class="header-section-number">4.0.1</span> Implementation</h3>
-<pre class="r"><code>fit &lt;- cgdro(Xlist, Ylist, X0,
-             family = &quot;drol&quot;, f_learner = &quot;xgb&quot;, w_learner = &quot;linear&quot;,
+<div id="implementation-3" class="section level3" number="5.0.1">
+<h3><span class="header-section-number">5.0.1</span> Implementation</h3>
+<pre class="r"><code>fit &lt;- cgdro(Xlist, Ylist, X0, loss_type = &quot;reward&quot;,
+             family = &quot;reg_ml&quot;, f_learner = &quot;xgb&quot;, w_learner = &quot;linear&quot;,
              bias_correct = TRUE,
              priors = NULL,
              ridge = 1e-8,
              seed = 123)</code></pre>
 </div>
-<div id="results-2" class="section level3" number="4.0.2">
-<h3><span class="header-section-number">4.0.2</span> Results</h3>
+<div id="results-3" class="section level3" number="5.0.2">
+<h3><span class="header-section-number">5.0.2</span> Results</h3>
 <pre class="r"><code>fit$weight_</code></pre>
 <pre><code>## [1] 0.3655064 0.6344936</code></pre>
 </div>
-<div id="prediction-2" class="section level3" number="4.0.3">
-<h3><span class="header-section-number">4.0.3</span> Prediction</h3>
+<div id="prediction-3" class="section level3" number="5.0.3">
+<h3><span class="header-section-number">5.0.3</span> Prediction</h3>
 <pre class="r"><code>pred &lt;- predict(fit)  # N x 1 vector of predicted values
 head(pred)</code></pre>
 <pre><code>## [1]  1.192098567  1.265310510 -0.095244835  1.546441924  0.004983431

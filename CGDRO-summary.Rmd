@@ -25,16 +25,17 @@ This report template summarizes **CGDRO** fits.
 ```{r utilities}
 source("R/Utility.R") 
 source("R/Checks.R")
-source("R/DRlm-Cls.R")
-source("R/DRlm-Reg.R")
-source("R/DRoL.R")     
+source("R/cls.R")
+source("R/reg_ld.R")
+source("R/reg_hd.R")
+source("R/reg_ml.R")     
 source("R/main.R")
 
 ```
 
 
 
-# Example 1 — DRlm: Classification (L=2 groups, C=3 (K=2) classes)
+# Example 1 — Classification (L=2 groups, C=3 (K=2) classes)
 
 ```{r ex1-dgp}
 set.seed(111)
@@ -81,7 +82,7 @@ ylist <- lapply(probs_list, function(P) {
 ```{r ex1-implementation}
 ## fit cgdro
 fit <- cgdro(Xlist, ylist, X0,
-             family = "drlm_cls", f_learner = "linear", w_learner = "linear")
+             family = "cls", f_learner = "linear", w_learner = "linear")
 inf <- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag = TRUE)
 ```
 
@@ -109,12 +110,59 @@ head(pred$pred)
 ```
 
 
+# Example 2 — Regression (Low-dim, L=2 domains)
+```{r ex0-dgp}
+set.seed(0)
+L <- 2
+p <- 5
+
+# Source distributions
+mean_source <- rep(0, p)
+cov_source  <- diag(p)
+
+# --- Group 1 ---
+n1 <- 100
+X1 <- MASS::mvrnorm(n1, mu = mean_source, Sigma = cov_source)
+b1 <- rep(0, p); b1[1:5] <- (1:5) / 20
+Y1 <- as.numeric(X1 %*% b1 + rnorm(n1))
+
+# --- Group 2 ---
+n2 <- 100
+X2 <- MASS::mvrnorm(n2, mu = mean_source, Sigma = cov_source)
+b2 <- rev(2:6) / 20   # same as np.arange(6,1,-1)/20
+Y2 <- as.numeric(X2 %*% b2 + rnorm(n2))
+
+# --- Target (covariate shift: here same cov as sources) ---
+n0 <- 100
+X0 <- MASS::mvrnorm(n0, mu = rep(0, p), Sigma = cov_source)
+
+Xlist <- list(X1, X2)
+Ylist <- list(Y1, Y2)
+```
+
+
+### Implementation
+```{r ex0-implementation}
+fit <- cgdro(Xlist, Ylist, X0, loss_type = "reward",
+             family = "reg_ld",  intercept = TRUE,
+             delta = 0,  verbose = FALSE)
+inf <- infer(fit, M = 200, alpha = 0.05)
+```
 
 
 
+### Results
+```{r ex0-results}
+summary(fit, infer=inf)
+```
 
+### Prediction
+```{r ex0-prediction}
+pred <- predict(fit)  # N x 1 vector of predicted values
+head(pred)
+```
 
-# Example 2 — DRlm: Regression (High-dim, L=2 domains)
+# Example 3 — Regression (High-dim, L=2 domains)
 
 
 ```{r ex2-dgp}
@@ -172,8 +220,8 @@ loading.mat[99:100, 2] = 0.8
 ### Implementation
 ```{r ex2-implementation}
 fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
-             family = "drlm_reg", 
-             loading_mat = loading.mat, intercept = FALSE,
+             family = "reg_hd", 
+             index = c(1,10,45,99), intercept = FALSE,
              delta = 0, lambda = "CV.min", verbose = FALSE)
 inf <- infer(fit, M = 200, alpha = 0.05)
 ```
@@ -186,9 +234,6 @@ inf <- infer(fit, M = 200, alpha = 0.05)
 summary(fit, infer=inf)
 ```
 
-```{r ex2-results2}
-summary(fit, infer=inf, index=1)
-```
 
 ### Prediction
 ```{r ex2-prediction}
@@ -200,7 +245,7 @@ head(pred)
 
 
 
-# Example 3 — DRoL 
+# Example 4 — Regression (ML, L=2 domains)
 
 ```{r ex3-dgp}
 set.seed(111)
@@ -223,8 +268,8 @@ Xlist <- list(X1, X2); Ylist <- list(Y1, Y2)
 
 ### Implementation
 ```{r ex3-implementation}
-fit <- cgdro(Xlist, Ylist, X0,
-             family = "drol", f_learner = "xgb", w_learner = "linear",
+fit <- cgdro(Xlist, Ylist, X0, loss_type = "reward",
+             family = "reg_ml", f_learner = "xgb", w_learner = "linear",
              bias_correct = TRUE,
              priors = NULL,
              ridge = 1e-8,

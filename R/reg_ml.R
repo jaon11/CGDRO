@@ -45,7 +45,7 @@
 #' fit$weight_                                           # optimal weights
 #' head(res)
 #' @export
-fit_drol <- function(X_list, y_list, X0 = NULL,
+fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squaredloss", "regret"),
                      f_learner = "xgb", w_learner = "xgb",
                      bias_correct = TRUE, priors = NULL,
                      ridge = 1e-8, solver = c("ECOS", "SCS"),
@@ -67,7 +67,7 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
 
 
   # check arguments
-  check_arg_drol_fit(X_list, y_list, X0,
+  check_arg_reg_ml_fit(X_list, y_list, X0, loss_type,
                      f_learner, w_learner,
                      bias_correct, priors,
                      ridge, solver,
@@ -78,12 +78,15 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
   # -------- Plug-in Γ (using full-source outcome models) --------
   source_full_models <- vector("list", L)
   pred_full_mat <- matrix(0, N, L)
+  dev_vec <- numeric(L)
 
   for (l in seq_len(L)) {
     om <- .learn_f(mode = "reg", learner = f_learner)
     om$fit(X_list[[l]], y_list[[l]])
     source_full_models[[l]] <- om
     pred_full_mat[, l] <- om$predict(X0)
+    pred_l <- om$predict(X_list[[l]])
+    dev_vec[l] <- sum((y_list[[l]] - pred_l)^2)/(nls[l] - d)  # use n_l - 1 for unbiased est
   }
   Gamma_plug <- crossprod(pred_full_mat) / N  # t(P) %*% P / N
 
@@ -165,7 +168,9 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
     constraints <- c(constraints, list(CVXR::p_norm(q - q0, 2) <= rho))
   }
 
-  obj <- CVXR::Minimize(CVXR::quad_form(q, G))
+  if (loss_type == "reward") obj <- CVXR::Minimize(CVXR::quad_form(q, G))
+  if (loss_type == "squaredloss") obj <- CVXR::Minimize(CVXR::quad_form(q, G) - t(q) %*% (diag(G) + dev_vec))
+  if (loss_type == "regret") obj <- CVXR::Minimize(CVXR::quad_form(q, G) - t(q) %*% (diag(G)))
 
   # Wrap problem build + solve in tryCatch
   q_opt <- tryCatch({
@@ -230,16 +235,16 @@ fit_drol <- function(X_list, y_list, X0 = NULL,
     Gamma_plug = Gamma_plug,
     Gamma_corr = Gamma_corr,
     weight_ = q_opt,
-    family = "drol"
+    family = "reg_ml"
   )
 }
 
 # =====================================================================
 # Predict on target
 # =====================================================================
-#' @param fit A list returned by \code{fit_drol}.
+#' @param fit A list returned by \code{fit_reg_ml}.
 #' @return A numeric vector of predicted values on the target feature matrix X0.
-predict_drol <- function(fit) {
+predict_reg_ml <- function(fit) {
 
 
   pred <- as.numeric(fit$pred_full_mat %*% fit$weight)
