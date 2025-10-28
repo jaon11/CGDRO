@@ -12,7 +12,7 @@ check_arg_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, f_learner
     if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
   }
   if(is.null(f_learner) || !(f_learner %in% c("linear", "xgb", "xgb.cv"))) stop("f_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","kliep"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','kliep'")
+  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","ulsif"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','ulsif'")
   if(is.null(split) || !is.logical(split)) stop("split must be TRUE or FALSE")
   if(is.null(max_iter) || !is.numeric(max_iter) || length(max_iter)!=1 || max_iter<=0 || max_iter!=round(max_iter)) stop("max_iter must be a positive integer")
   if(is.null(tol) || !is.numeric(tol) || length(tol)!=1 || tol<=0) stop("tol must be a positive numeric value")
@@ -70,12 +70,14 @@ check_arg_reg_hd <- function(X_list = NULL, y_list = NULL, index = NULL, X0 = NU
   if(!is.null(X0)){
     if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
   }
-  # index is a vector
-  if(is.null(index) || !is.numeric(index) || any(index!=round(index)) || any(index<1) || any(index>d) || length(unique(index))!=length(index)){
-    stop("index must be a vector of unique integers between 1 and d (the dimension of covariates)")
-  }
+
   if(is.null(intercept) || !is.logical(intercept)) stop("intercept must be TRUE or FALSE")
   if(is.null(intercept_loading) || !is.logical(intercept_loading)) stop("intercept_loading must be TRUE or FALSE")
+  # index is a vector
+  d1 = if(intercept) d+1 else d
+  if(is.null(index) || !is.numeric(index) || any(index!=round(index)) || any(index<1) || any(index>d1) || length(unique(index))!=length(index)){
+    stop("index must be a vector of unique integers between 1 and d (the dimension of covariates)")
+  }
   if(!is.null(delta)){
     if(!is.numeric(delta) || length(delta)!=1 || delta>0) stop("delta must be a non-positive numeric value")
   }
@@ -117,7 +119,7 @@ check_arg_reg_ml_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, loss_t
   }
   if(is.null(loss_type) || !(loss_type %in% c("reward", "squaredloss", "regret"))) stop("loss_type must be one of 'reward', 'squaredloss', 'regret'")
   if(is.null(f_learner) || !(f_learner %in% c("linear", "xgb", "xgb.cv"))) stop("f_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","kliep"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','kliep'")
+  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","ulsif"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','ulsif'")
   if(is.null(bias_correct) || !is.logical(bias_correct)) stop("bias_correct must be TRUE or FALSE")
   if(!is.null(priors)){
     if(!is.list(priors) || length(priors)!=2) stop("priors must be a list of length 2")

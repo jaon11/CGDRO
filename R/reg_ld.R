@@ -6,13 +6,9 @@
 # =====================================================================
 #' @param X_list list of feature matrices from each source (each n_l x p)
 #' @param y_list list of outcome vectors from each source (each n_l x 1)
-#' @param loading_mat loading matrix (p x m) for m loadings of interest
 #' @param X0 target feature matrix (N x p); if NULL, use all source data
 #' @param intercept whether to include intercept in outcome models (default: FALSE)
-#' @param intercept_loading whether to include intercept in loading models (default: FALSE)
 #' @param delta regularization parameter in weight optimization (default: 0)
-#' @param lambda regularization parameter in high-dimensional outcome models;
-#' if "CV.min" or "CV.1se", use cross-validation to select (default: NULL)
 #' @param verbose whether to print fitting progress (default: FALSE)
 #' @return a list containing the following components:
 #' @importFrom SIHR LF
@@ -130,10 +126,16 @@ fit_reg_ld <- function(X_list, y_list,
 #' @param fit a fitted model returned by fitting
 #' @return a numeric vector of predicted outcomes on target (length N)
 
-predict_reg_ld <- function(fit) {
-
-  pred_plugin <- as.numeric(fit$X0_use %*% fit$est_)
-  return(pred_plugin)
+predict_reg_ld <- function(fit, X=NULL) {
+  if (is.null(X)) {
+    X <- fit$X0_use
+  } else {
+    if (dim(X)[2] != fit$d) {
+      stop("Dimension of X does not match the fitted model.")
+    }
+  }
+  pred <- as.numeric(X %*% fit$est_)
+  return(pred)
 }
 
 # =====================================================================

@@ -78,11 +78,15 @@ ylist <- lapply(probs_list, function(P) {
 ```
 
 
+
+
+
+
 ### Implementation
 ```{r ex1-implementation}
 ## fit cgdro
 fit <- cgdro(Xlist, ylist, X0,
-             family = "cls", f_learner = "linear", w_learner = "linear")
+             family = "cls", f_learner = "linear", w_learner = "linear", split=TRUE)
 inf <- infer(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag = TRUE)
 ```
 
@@ -221,8 +225,8 @@ loading.mat[99:100, 2] = 0.8
 ```{r ex2-implementation}
 fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
              family = "reg_hd", 
-             index = c(1,10,45,99), intercept = FALSE,
-             delta = 0, lambda = "CV.min", verbose = FALSE)
+             index = c(1,10,45,99,101), intercept = TRUE, intercept_loading = TRUE,
+             delta = 0, lambda = "CV.min", verbose = TRUE)
 inf <- infer(fit, M = 200, alpha = 0.05)
 ```
 

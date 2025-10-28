@@ -47,7 +47,14 @@ Y2 <- as.numeric(X2 %*% b2 + rnorm(100))
 cov0 <- cov_source; diag(cov0) <- 1.5; cov0[1:5,1:5] <- 0.9; diag(cov0[1:5,1:5]) <- 1.5; cov0[99:100,99:100] <- matrix(c(1.5,0.9,0.9,1.5),2)
 X0 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov0)
 loading_mat <- matrix(0, nrow = 100, ncol = 2); loading_mat[96:100,1] <- 0.4; loading_mat[99:100,2] <- 0.8 #; loading_mat <- t(loading_mat)
+index <- c(1,3,88,99)
+
 #
+fit <- fit_reg_hd(list(X1,X2), list(Y1,Y2), index, X0, intercept = TRUE, intercept_loading = T, verbose=TRUE)
+pred <- predict_reg_hd(fit)
+infer <- infer_reg_hd(fit, M = 50)
+summary_reg_hd(fit, infer)
+
 
 
 fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
@@ -90,16 +97,21 @@ X0 <- MASS::mvrnorm(n0, mu = rep(0, p), Sigma = cov_source)
 
 Xlist <- list(X1, X2)
 Ylist <- list(Y1, Y2)
+##
 
+fit <- fit_reg_ld(Xlist, Ylist, X0, loss_type = "regret", intercept =T)
+pred <- predict_reg_ld(fit)
+infer <- infer_reg_ld(fit, M = 50)
+summary_reg_ld(fit, infer)
 # Define a simple loading matrix: pick first 2 coordinates
 loading_mat <- diag(p)[1:2, ]
 
 ## ------------------- Fit DRO regression -------------------
 fit <- cgdro(
-  Xlist, Ylist, X0,
-  family = "drlm_reg", f_learner = "linear", w_learner = "linear",
-  loading_mat = t(loading_mat), intercept = FALSE,
-  delta = 0, lambda = "CV.min", verbose = TRUE
+  Xlist, Ylist, X0, loss_type = "reward",
+  family = "reg_ld",
+ intercept = FALSE,
+  delta = 0,  verbose = TRUE
 )
 
 cat("\nOptimal weights across sources:\n")
@@ -140,9 +152,15 @@ Y2 <- (X2^3 %*% b2) + sin(X2 %*% b2) + pmin(pmax(exp(X2 %*% b2),0),1) + rnorm(n2
 X0 <- MASS::mvrnorm(n0, rep(0,p), cov_source)
 Xlist <- list(X1, X2); Ylist <- list(Y1, Y2)
 
-fit <- cgdro(Xlist, Ylist, X0,
-             family = "drol", f_learner = "linear", w_learner = "linear", bias_correct = TRUE, priors=NULL, seed = 123)
+fit <- fit_reg_ml(Xlist, Ylist, X0, loss_type = "regret",
+                  f_learner = "linear", w_learner = "linear", bias_correct = TRUE, priors=NULL, seed = 123)
+fit$weight_                                           # optimal weights
+pred <- predict_reg_ml(fit)
+
+
+fit <- cgdro(Xlist, Ylist, X0, loss_type = "regret",
+             family = "reg_ml", f_learner = "linear", w_learner = "linear", bias_correct = TRUE, priors=NULL, seed = 123)
 res <- predict(fit)
-fit$weight                                           # optimal weights
-head(res$pred)
+fit$weight_                                           # optimal weights
+head(res)
 

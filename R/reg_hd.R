@@ -6,7 +6,7 @@
 # =====================================================================
 #' @param X_list list of feature matrices from each source (each n_l x p)
 #' @param y_list list of outcome vectors from each source (each n_l x 1)
-#' @param loading_mat loading matrix (p x m) for m loadings of interest
+#' @param index vector of feature indices for which to estimate the coefficients
 #' @param X0 target feature matrix (N x p); if NULL, use all source data
 #' @param intercept whether to include intercept in outcome models (default: FALSE)
 #' @param intercept_loading whether to include intercept in loading models (default: FALSE)
@@ -177,7 +177,7 @@ fit_reg_hd <- function(X_list, y_list, index,
 
   return(list(
     L = L, d = d, intercept = intercept,
-    X0 = X0, X0_use = X0_use,
+    X0 = X0, X0_use = X0_use, index = index,
     loading_mat = loading_mat,
     Gamma = Gamma_debias,
     Gamma_plugin = Gamma_plugin,
@@ -200,9 +200,16 @@ fit_reg_hd <- function(X_list, y_list, index,
 #' @param fit a fitted model returned by fitting
 #' @return a numeric vector of predicted outcomes on target (length N)
 
-predict_reg_hd <- function(fit) {
+predict_reg_hd <- function(fit, X=NULL) {
+  if (is.null(X)) {
+    X <- fit$X0_use
+  } else {
+    if (dim(X)[2] != fit$d) {
+      stop("Dimension of X does not match the fitted model.")
+    }
+  }
 
-  pred_plugin <- as.numeric(fit$X0_use %*% fit$beta_plug_)
+  pred_plugin <- as.numeric(X %*% fit$beta_plug_)
   return(pred_plugin)
 }
 
@@ -321,7 +328,8 @@ summary_reg_hd <- function(fit, infer = NULL, index = NULL) {
     }
   }
 
-  dim_idx0 <- normalize_indices(index, 1L, n_loading, "index")
+  #dim_idx0 <- normalize_indices(index, 1L, n_loading, "index")
+  dim_idx0 <- fit$index - 1L  # internal 0-based
 
   # ---- print ----
   cat("Model Summary:\n")
@@ -350,7 +358,7 @@ summary_reg_hd <- function(fit, infer = NULL, index = NULL) {
 
   # Debiased estimates (subset by index)
   cat("Debiased Estimators:\n\n")
-  print_chunks("coef_", dim_idx0, est_bc[dim_idx0 + 1L],
+  print_chunks("coef_", dim_idx0, est_bc,
                width = width, per_row = per_row_coef,
                fmt = sprintf("%%%d.%df", width, digits_coef),
                header_label = "index")
@@ -364,7 +372,7 @@ summary_reg_hd <- function(fit, infer = NULL, index = NULL) {
     } else {
       cat("=================================\n")
       cat("Confidence Intervals:\n\n")
-      ci_sub <- CI[dim_idx0 + 1L, , drop = FALSE]
+      ci_sub <- CI[, , drop = FALSE]
       ci_str <- paste0("(", formatC(ci_sub[, 1], format = "f", digits = digits_ci), ",",
                        formatC(ci_sub[, 2], format = "f", digits = digits_ci), ")")
       print_chunks("CI", dim_idx0, ci_str,

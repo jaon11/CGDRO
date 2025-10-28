@@ -67,13 +67,10 @@ train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
 # ---- XGBoost CV helper (5-fold + early stop) ----------------------------------
 .xgb_cv_pick <- function(dtrain, base_params, seed = 123,
                          grid = expand.grid(
-                           eta              = c(0.05, 0.1),
-                           max_depth        = c(4, 6),
-                           min_child_weight = c(1, 3),
+                           eta              = c(0.01, 0.05, 0.1),
+                           max_depth        = c(3, 6, 9),
                            subsample        = c(0.8, 1.0),
                            colsample_bytree = c(0.8, 1.0),
-                           lambda           = c(1, 5),
-                           alpha            = c(0, 1),
                            KEEP.OUT.ATTRS   = FALSE,
                            stringsAsFactors = FALSE
                          ),
@@ -382,7 +379,7 @@ train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
 # =====================================================================
 # 2) Density-ratio learner  w(x) = p0(x)/p(x)
 # =====================================================================
-.learn_w <- function(learner = c("linear", "xgb", "xgb.cv", "kliep"),
+.learn_w <- function(learner = c("linear", "xgb", "xgb.cv", "ulsif"),
                      params = NULL,
                      seed = 123) {
   learner <- match.arg(learner)
@@ -406,62 +403,45 @@ train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
     X  <- as_matrix2d(X)
     X0 <- as_matrix2d(X_target)
 
-    if (learner == "kliep") {
+    if (learner == "ulsif") {
       if (!requireNamespace("densratio", quietly = TRUE))
-        stop("Need package 'densratio' for learn_w(learner = 'kliep').")
+        stop("Need package 'densratio' for learn_w(learner = 'ulsif').")
 
-      ratio <<- 1.0  # KLIEP directly estimates p0/p
+      ratio <<- 1.0  # ulsif directly estimates p0/p
 
       # Optional args
-      sigma_arg <- if (!is.null(params) && !is.null(params$sigma)) params$sigma else NULL
+      sigma_arg <- if (!is.null(params) && !is.null(params$sigma)) params$sigma else "auto"
       fold_arg  <- if (!is.null(params) && !is.null(params$fold))  as.integer(params$fold) else 5L
 
-      # densratio::KLIEP expects numerator = target (X0), denominator = source (X)
-      kl <- try(densratio::KLIEP(x1 = X0, x2 = X, sigma = sigma_arg, fold = fold_arg, verbose = FALSE),
+      # densratio::ulsif expects numerator = target (X0), denominator = source (X)
+      kl <- try(densratio::densratio(x1 = X0, x2 = X, sigma = sigma_arg, fold = fold_arg, verbose = FALSE),
                 silent = TRUE)
 
       if (!inherits(kl, "try-error")) {
         # Store a simple adapter so predict() can always call model$predict_fn(...)
         model <<- list(
-          method = "kliep_densratio",
+          method = "ulsif_densratio",
           predict_fn = function(Xnew) {
             Xn <- as_matrix2d(Xnew)
             w  <- as.numeric(kl$compute_density_ratio(Xn))
             pmin(pmax(w, 1e-3), 1e3)
           }
         )
-        params_used <<- list(method = "KLIEP", backend = "densratio",
+        params_used <<- list(method = "uLSIF", backend = "densratio",
                              sigma = tryCatch(kl$sigma, error = function(e) NA_real_),
                              fold = fold_arg)
         nrounds_used <<- NA_integer_
         return(invisible(NULL))
       }
 
-      # Fallback to densityratio::kliep if densratio failed
-      if (requireNamespace("densityratio", quietly = TRUE)) {
-        kr <- try(densityratio::kliep(x_numer = X0, x_denom = X, centers = "kmeans"), silent = TRUE)
-        if (!inherits(kr, "try-error")) {
-          model <<- list(
-            method = "kliep_densityratio",
-            predict_fn = function(Xnew) {
-              Xn <- as_matrix2d(Xnew)
-              w  <- as.numeric(predict(kr, Xn))
-              pmin(pmax(w, 1e-3), 1e3)
-            }
-          )
-          params_used <<- list(method = "KLIEP", backend = "densityratio")
-          nrounds_used <<- NA_integer_
-          return(invisible(NULL))
-        }
-      }
 
       # Last-resort stub (uniform weights at predict time)
-      warning("KLIEP fitting failed in both densratio and densityratio; falling back to uniform weights.")
+      warning("uLSIF fitting failed in densratio; falling back to uniform weights.")
       model <<- list(
-        method = "kliep_uniform_stub",
+        method = "uLSIF_uniform_stub",
         predict_fn = function(Xnew) rep(1, nrow(as_matrix2d(Xnew)))
       )
-      params_used <<- list(method = "KLIEP", backend = "stub")
+      params_used <<- list(method = "uLSIF", backend = "stub")
       nrounds_used <<- NA_integer_
       return(invisible(NULL))
     }
@@ -506,7 +486,7 @@ train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
   predict <- function(Xnew) {
     if (is.null(model)) stop("Call $fit(X, X_target) before predicting ratios.")
 
-    # If the model exposes a predict_fn (KLIEP adapters), just use it
+    # If the model exposes a predict_fn (uLSIF adapters), just use it
     if (is.list(model) && !is.null(model$predict_fn)) {
       return(model$predict_fn(Xnew))
     }

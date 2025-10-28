@@ -94,6 +94,7 @@ fit_cls <- function(X_list, y_list, X0 = NULL,
     omegaX <- model_w$predict(X_list[[i]])
 
 
+
     probaX_list[[i]] <- probaX
     probaX0_list[[i]] <- probaX0
     omegaX_list[[i]] <- omegaX
@@ -162,9 +163,17 @@ fit_cls <- function(X_list, y_list, X0 = NULL,
 # =====================================================================
 #' @param fit a fitted model returned by fit_cls
 #' @return a list containing predicted probabilities and predicted labels
-predict_cls <- function(fit) {
+predict_cls <- function(fit, X=NULL) {
+  if (is.null(X)) {
+    X <- fit$X0
+  } else {
+    if (dim(X)[2] != fit$d) {
+      stop("Dimension of X does not match the fitted model.")
+    }
+  }
+
   theta_mat <- matrix(fit$coef_, nrow = fit$d, byrow = FALSE)
-  logits <- fit$X0 %*% theta_mat
+  logits <- X %*% theta_mat
   logits_max <- apply(logits, 1, max)
   stable <- sweep(logits, 1, logits_max, "-")
   exp_terms <- exp(stable)
@@ -180,9 +189,7 @@ predict_cls <- function(fit) {
 #' @param fit a fitted model returned by fit_cls
 #' @param M number of resamples (default: 200)
 #' @param alpha significance level for (1-alpha) confidence intervals (default: 0.05)
-#' @param parallel whether to use parallel computing (default: FALSE)
-#' @param n_workers number of workers for parallel computing (default: 4)
-#' @param diag whether to use diagonal approximation for covariance estimation (default: TRUE)
+#' @param c
 #' @return a list containing M resampled estimates and confidence intervals
 infer_cls <- function(fit, M = 200, alpha = 0.05,
                            parallel = FALSE, n_workers = 4, diag = TRUE) {

@@ -9,6 +9,7 @@
 #' @param X0 Target feature matrix (N × d). If NULL, uses all source data combined.
 #' @param f_learner Outcome model learner. Options: "linear", "xgb", "xgb.cv", "high_d". Default is "xgb".
 #' @param w_learner Density ratio model learner. Options: "linear", "xgb", "xgb.cv", "kliep". Default is "xgb".
+#' @param loss_type Loss type for weight optimization. Options: "reward", "squaredloss", "regret". Default is "reward".
 #' @param bias_correct Whether to use bias-corrected estimator for Γ. Default is TRUE.
 #' @param priors Optional list with two elements: prior weight vector (length L) and radius (nonnegative scalar). Default is NULL (no prior).
 #' @param ridge Ridge regularization parameter (nonnegative scalar) for numerical stability. Default is 1e-8.
@@ -230,6 +231,8 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
     d = d,
     # data cache
     X0 = X0,
+    dev_vec = dev_vec,
+    source_full_models = source_full_models,
     # predictions + estimators
     pred_full_mat = pred_full_mat,
     Gamma_plug = Gamma_plug,
@@ -244,9 +247,22 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
 # =====================================================================
 #' @param fit A list returned by \code{fit_reg_ml}.
 #' @return A numeric vector of predicted values on the target feature matrix X0.
-predict_reg_ml <- function(fit) {
+predict_reg_ml <- function(fit, X=NULL) {
+  if (is.null(X)) {
+    pred_full_mat = fit$pred_full_mat
+  } else {
+    if (dim(X)[2] != fit$d) {
+      stop("Dimension of X does not match the fitted model.")
+    }
+    X <- as.matrix(X)
+    pred_full_mat <- matrix(0, nrow(X), fit$L)
+    for (l in seq_len(fit$L)) {
+      om <- fit$source_full_models[[l]]
+      pred_full_mat[, l] <- om$predict(X)
+    }
+  }
 
 
-  pred <- as.numeric(fit$pred_full_mat %*% fit$weight)
+  pred <- as.numeric(pred_full_mat %*% fit$weight)
   pred
 }

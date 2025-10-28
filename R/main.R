@@ -5,7 +5,7 @@ cgdro <- function(
     index = NULL,
     family   = c("reg_ld", "reg_hd", "reg_ml", "cls"),
     f_learner = c("linear", "xgb", "xgb.cv", "high_d"),
-    w_learner = c("linear", "xgb", "xgb.cv", "kliep"),
+    w_learner = c("linear", "xgb", "xgb.cv", "ulsif"),
     loss_type = NULL,   # only used for reg_ld and reg_ml
     ...
 ) {
@@ -62,16 +62,16 @@ cgdro <- function(
 }
 
 
-predict <- function(fit){
+predict <- function(fit, X=NULL){
   if (!is.list(fit) || is.null(fit$family)) stop("fit must be a list returned by cgdro()")
   if (fit$family == "reg_ld") {
-    predict_reg_ld(fit)
+    predict_reg_ld(fit, X)
   } else if (fit$family == "reg_hd") {
-    predict_reg_hd(fit)
+    predict_reg_hd(fit, X)
   } else if (fit$family == "reg_ml") {
-    predict_reg_ml(fit)
+    predict_reg_ml(fit, X)
   } else if (fit$family == "cls") {
-    predict_cls(fit)
+    predict_cls(fit, X)
   }
 }
 
@@ -95,6 +95,6 @@ summary <- function(fit, infer = NULL, ...) {
   } else if (fit$family == "cls") {
     summary_cls(fit, infer, ...)
   } else if (fit$family == "reg_ml") {
-    print("Use predict() for DRoL Instead.")
+    print("Use predict() for reg_ml Instead.")
   }
 }
