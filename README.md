@@ -8,6 +8,15 @@ and model statistical inference without knowing target labels, offering
 multi-source solutions to low-dimensional and high-dimensional, linear
 and complex data, regression and classification problems.
 
+CGDRO spports 4 familys of models:
+
+| Family | Description | Statistical Inference |
+|-----------------------------|---------------------------------|----------------|
+| `reg_ld` | Linear prediction model (low-dimensional) | ✅ |
+| `reg_hd` | High-dimensional linear model | ✅ |
+| `reg_ml` | Machine learning prediction model | ❌ |
+| `cls` | Linear model for classification task | ✅ |
+
 # Installation
 
 The development version from [GitHub](https://github.com) with:
