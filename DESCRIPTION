@@ -41,4 +41,5 @@ Suggests:
     testthat (>= 3.0.0),
     ggplot2
 VignetteBuilder: knitr
-Roxygen: list(markdown = TRUE)
+Roxygen: list(markdown = TRUE, roclets = c("collate", "namespace", "rd", "vignette"))
+

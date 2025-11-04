@@ -1,7 +1,6 @@
 ## Example: High-dimensional Linear Regression (family = "reg_hd")
 \donttest{
   # two source groups, each with 100 samples, and 100 target samples
-  source(data/data.R)
   data <- simu_linear_reg_highd(n_list = c(100, 100), N = 100, p = 100, seed = 123)
   Xlist = data$X_list
   Ylist = data$Y_list

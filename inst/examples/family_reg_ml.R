@@ -2,8 +2,7 @@
 \donttest{
   # number of source groups = 3, each with 1000 samples, and 10000 target samples
   # dimension p = 5
-  source(data/data.R)
-  data <- simu_reg_ml(n_vec = c(1000,1000,1000), n0=10000, p=5, seed = 123)
+  data <- simu_reg_ml(n_vec = c(1000,1000,1000), n0=10000, N_label=20, p=5, seed = 123)
   Xlist = data$X_list
   Ylist = data$Y_list
   X0 = data$X0
@@ -14,7 +13,8 @@
                bias_correct = TRUE,
                priors = NULL,
                ridge = 1e-8,
-               seed = 123)
+               seed = 123,
+               verbose = FALSE)
   fit$weight_
 
   ## predict

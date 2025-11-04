@@ -32,7 +32,7 @@ fit_reg_ld <- function(X_list, y_list,
   check_arg_reg_ld(X_list, y_list, X0, loss_type,
                    intercept, delta, verbose)
 
-  if (verbose) cat( "start  fitting-----\n")
+  if (verbose) cat("Fitting source outcome models...\n")
 
 
 
@@ -53,6 +53,7 @@ fit_reg_ld <- function(X_list, y_list,
     init_est[[l]] <- list(beta_init = b_init, dev=diag(var_l))
   }
 
+  if (verbose) cat("Computing plug-in Gamma...\n")
   Sigma0 <- crossprod(X0_use) / N
   Gamma_plugin <- matrix(0, L, L)
   for (l in seq_len(L)) {
@@ -64,8 +65,9 @@ fit_reg_ld <- function(X_list, y_list,
   }
   Gamma_plugin[lower.tri(Gamma_plugin)] <- t(Gamma_plugin)[lower.tri(Gamma_plugin)]
 
-
+  if (verbose) cat("Optimizing aggregation weights...\n")
   w <- .opt_weight(Gamma_plugin, delta = delta, loss_type = loss_type, dev_vec = dev_vec)
+  if (verbose) cat("Aggregating final estimates...\n")
   est <- Reduce(`+`, Map(function(wl, pt) wl * pt$beta_init, w, init_est))
 
 

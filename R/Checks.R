@@ -20,7 +20,6 @@ check_arg_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, f_learner
   if(is.null(verbose) || !is.logical(verbose)) stop("verbose must be TRUE or FALSE")
   if(is.null(seed) || !is.numeric(seed) || length(seed)!=1 || seed!=round(seed)) stop("seed must be an integer")
 
-
 }
 
 
@@ -106,7 +105,7 @@ check_arg_reg_ml_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, loss_t
                           f_learner = NULL, w_learner = NULL,
                           bias_correct = NULL, priors = NULL,
                           ridge = NULL, solver = NULL,
-                          seed = NULL){
+                          seed = NULL, verbose = NULL){
   if(is.null(X_list) || (!is.list(X_list))) stop("X_list must be a list")
   if(is.null(y_list) || (!is.list(y_list))) stop("y_list must be a list")
   if(length(X_list) != length(y_list)) stop("X_list and y_list must have the same length")
@@ -131,7 +130,7 @@ check_arg_reg_ml_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, loss_t
   if(is.null(ridge) || !is.numeric(ridge) || length(ridge)!=1 || ridge<0) stop("ridge must be a non-negative numeric value")
   if(is.null(solver) || !(any(solver %in% c("ECOS", "SCS")))) stop("solver must be one of 'ECOS' or 'SCS'")
   if(is.null(seed) || !is.numeric(seed) || length(seed)!=1 || seed!=round(seed)) stop("seed must be an integer")
-
+  if(is.null(verbose) || !is.logical(verbose)) stop("verbose must be TRUE or FALSE")
 
 }
 

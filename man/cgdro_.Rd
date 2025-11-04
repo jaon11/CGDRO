@@ -13,6 +13,7 @@ cgdro_(
   f_learner = c("linear", "xgb", "xgb.cv", "high_d"),
   w_learner = c("linear", "xgb", "xgb.cv", "ulsif"),
   loss_type = NULL,
+  verbose = FALSE,
   ...
 )
 }
@@ -33,9 +34,9 @@ cgdro_(
 
 \item{loss_type}{Character; loss type for weight optimization. Options: \code{"reward"}, \code{"squaredloss"}, \code{"regret"}. Default is \code{"reward"}. Only needed for \code{family = "reg_ld"} or \code{"reg_ml"}.}
 
-\item{...}{See \link{cgdro-family} for full documentation of these options.}
-
 \item{verbose}{Logical; whether to print fitting progress (default: \code{FALSE}).}
+
+\item{...}{See \link{cgdro-family} for full documentation of these options.}
 }
 \value{
 A list of results including aggregated weights \code{weight_}, coefficient estimators (e.g., \code{est_}, \code{est_bc_}, \code{est_plug_}, \code{coef_}), and components required for subsequent methods such as \code{predict_cgdro_()}, \code{infer_cgdro_()}, and \code{summary_cgdro_()}.

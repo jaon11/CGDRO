@@ -26,6 +26,7 @@ fit_cls <- function(X_list, y_list, X0 = NULL,
                          split, max_iter, tol, check_dual, verbose, seed)
 
   # learners
+  if (verbose) cat("Fitting source models...\n")
   probaX_list <- list(); probaX0_list <- list(); omegaX_list <- list()
   for (i in seq_len(L)) {
     # learn f:
@@ -66,6 +67,7 @@ fit_cls <- function(X_list, y_list, X0 = NULL,
   mu_list <- .compute_mu_list(X_list, y_list, X0, probaX_list, probaX0_list, omegaX_list, num_class, d)
 
   # init
+  if (verbose) cat("Optimizing CGDRO objective via OGMP...\n")
   K <- num_class - 1
   theta <- rep(0, d * K)
   gamma <- rep(1/L, L)
@@ -108,6 +110,7 @@ fit_cls <- function(X_list, y_list, X0 = NULL,
     }
     primal <- primal_curr
   }
+  if (verbose) cat("Finished optimization.\n")
   theta_array <- matrix(theta, nrow = d, byrow = FALSE)
 
 

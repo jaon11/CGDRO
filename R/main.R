@@ -1,8 +1,8 @@
 #' CGDRO Family: consolidated arguments per family and complete examples
 #'
 #' This page supplements the function-level help pages by listing the
-#' \strong{family-specific arguments} for \code{\link{cgdro}()}, \code{\link{infer}()},
-#' and \code{\link{summary}()}, and by providing end-to-end \strong{examples} for each
+#' \strong{family-specific arguments} for \code{\link{cgdro_}()}, \code{\link{infer_cgdro_}()},
+#' and \code{\link{summary_cgdro_}()}, and by providing end-to-end \strong{examples} for each
 #' supported family. Use it as the single place to discover which extra arguments are
 #' recognized under different \code{family} settings and how to run complete workflows.
 #'
@@ -20,7 +20,7 @@
 #' }
 #'
 #'
-#'#' @section Arguments by family:
+#' @section Arguments by family:
 #' \describe{
 #'
 #' \item{\strong{family = "reg_ld"}}{
@@ -101,7 +101,7 @@
 #' }
 #'
 #'
-#' @seealso \link{cgdro}, \link{predict}, \link{infer}, \link{summary}
+#' @seealso \link{cgdro_}, \link{predict_cgdro_}, \link{infer_cgdro_}, \link{summary_cgdro_}
 #' @family cgdro
 #' @name cgdro-family
 #' @title CGDRO Family: consolidated arguments per family and complete examples
@@ -168,6 +168,7 @@ cgdro_ <- function(
     f_learner = c("linear", "xgb", "xgb.cv", "high_d"),
     w_learner = c("linear", "xgb", "xgb.cv", "ulsif"),
     loss_type = NULL,   # only used for reg_ld and reg_ml
+    verbose = FALSE,
     ...
 ) {
   family <- match.arg(family)
@@ -191,13 +192,13 @@ cgdro_ <- function(
   if (family == "reg_ld") {
     fit <- fit_reg_ld(
       X_list, y_list, X0,
-      loss_type = loss_type, ...
+      loss_type = loss_type, verbose=verbose, ...
     )
 
   } else if (family == "reg_hd") {
     if (is.null(index)) stop("`index` must be provided for high-dimensional regression (family = 'reg_hd').")
     fit <- fit_reg_hd(
-      X_list, y_list, index, X0,
+      X_list, y_list, index, X0, verbose=verbose,
       ...  # no loss_type here
     )
 
@@ -207,6 +208,7 @@ cgdro_ <- function(
       loss_type = loss_type,
       f_learner = f_learner,
       w_learner = w_learner,
+      verbose = verbose,
       ...
     )
 
@@ -215,6 +217,7 @@ cgdro_ <- function(
       X_list, y_list, X0,
       f_learner = f_learner,
       w_learner = w_learner,
+      verbose = verbose,
       ...
     )
   }
@@ -224,18 +227,17 @@ cgdro_ <- function(
 
 #' Prediction on Target Domain using Aggregated Coefficients
 #'
-#' Applies the aggregated weights and coefficients returned by \code{\link{cgdro}()}
+#' Applies the aggregated weights and coefficients returned by \code{\link{cgdro_}()}
 #' to a target or user-specified design matrix, producing predicted values.
 #'
-#' @param fit A fitted result object returned by \code{\link{cgdro}()}.
+#' @param fit A fitted result object returned by \code{\link{cgdro_}()}.
 #' @param X   Optional numeric design matrix for the target domain. If \code{NULL},
 #'            the matrix \code{fit$X0_use} defined during fitting will be used.
-#' @param ... See \link{cgdro-family} for full documentation of these options.
-#'
 #' @return A numeric vector of predicted outcomes, of length equal to \code{nrow(X)}.
+#' \item{pred}{Predicted labels on the target domain.}
+#' \item{pred_proba}{Predicted probabilities on the target domain. Only for \code{family = "cls"}.}
 #'
-#'
-#' @seealso \link{cgdro-family}, \link{cgdro}, \link{infer}
+#' @seealso \link{cgdro-family}, \link{cgdro_}, \link{infer_cgdro_}
 #' @family cgdro
 #' @name predict_cgdro_
 #' @title Prediction on Target Domain (CGDRO)
@@ -258,11 +260,11 @@ predict_cgdro_ <- function(fit, X=NULL){
 #' Construct confidence intervals and perform inference for fitted CGDRO models
 #'
 #' Builds confidence intervals and conducts statistical inference for
-#' estimators obtained from \code{\link{cgdro}()}. This function performs
-#' Resampling to estimate variability and provides coordinate-wise
+#' estimators obtained from \code{\link{cgdro_}()}. This function performs
+#' Resampling to estimate variability and provides coordinate-wise or loading-wise
 #' confidence intervals for the parameters of interest.
 #'
-#' @param fit A fitted CGDRO result object returned by \code{\link{cgdro}()}.
+#' @param fit A fitted CGDRO result object returned by \code{\link{cgdro_}()}.
 #' @param M Integer; number of Monte Carlo samples used to construct the intervals.
 #'   Default is \code{50}.
 #' @param alpha Numeric; significance level for interval construction.
@@ -272,7 +274,7 @@ predict_cgdro_ <- function(fit, X=NULL){
 #' @return A list containing:
 #' \item{CI}{A numeric matrix of confidence intervals for the estimators of interest.}
 #'
-#' @seealso \link{cgdro-family}, \link{cgdro}, \link{summary}
+#' @seealso \link{cgdro-family}, \link{cgdro_}, \link{summary_cgdro_}
 #' @family cgdro
 #' @name infer_cgdro_
 #' @title Construct confidence intervals and perform inference for fitted CGDRO models
@@ -297,14 +299,13 @@ infer_cgdro_ <- function(fit, M = 50, alpha = 0.05, ...){
 #' for a fitted CGDRO model. Provides users with a readable overview of the model output
 #' and key inference results.
 #'
-#' @param fit   A fitted result object returned by \code{\link{cgdro}()}.
-#' @param infer Optional list returned by \code{\link{infer}()} containing confidence intervals.
-#' @param index Optional integer vector (1-based) selecting subsets of coefficient indices
-#'              to display (default: all indices).
+#' @param fit   A fitted result object returned by \code{\link{cgdro_}()}.
+#' @param infer Optional list returned by \code{\link{infer_cgdro_}()} containing confidence intervals.
+#' @param ... See \link{cgdro-family} for full documentation of these options.
 #'
 #' @return Invisibly returns \code{NULL}. The function prints formatted tables to the console.
 #'
-#' @seealso \link{cgdro-family}, \link{cgdro}, \link{infer}
+#' @seealso \link{cgdro-family}, \link{cgdro_}, \link{infer_cgdro_}
 #' @family cgdro
 #' @name summary_cgdro_
 #' @title Console Summary of CGDRO Results

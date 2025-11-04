@@ -7,7 +7,7 @@
 infer_cgdro_(fit, M = 50, alpha = 0.05, ...)
 }
 \arguments{
-\item{fit}{A fitted CGDRO result object returned by \code{\link{cgdro}()}.}
+\item{fit}{A fitted CGDRO result object returned by \code{\link{cgdro_}()}.}
 
 \item{M}{Integer; number of Monte Carlo samples used to construct the intervals.
 Default is \code{50}.}
@@ -26,12 +26,12 @@ Construct confidence intervals and perform inference for fitted CGDRO models
 }
 \details{
 Builds confidence intervals and conducts statistical inference for
-estimators obtained from \code{\link{cgdro}()}. This function performs
-Resampling to estimate variability and provides coordinate-wise
+estimators obtained from \code{\link{cgdro_}()}. This function performs
+Resampling to estimate variability and provides coordinate-wise or loading-wise
 confidence intervals for the parameters of interest.
 }
 \seealso{
-\link{cgdro-family}, \link{cgdro}, \link{summary}
+\link{cgdro-family}, \link{cgdro_}, \link{summary_cgdro_}
 
 Other cgdro: 
 \code{\link{cgdro-family}},

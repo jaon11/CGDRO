@@ -8,8 +8,8 @@ CGDRO Family: consolidated arguments per family and complete examples
 }
 \details{
 This page supplements the function-level help pages by listing the
-\strong{family-specific arguments} for \code{\link{cgdro}()}, \code{\link{infer}()},
-and \code{\link{summary}()}, and by providing end-to-end \strong{examples} for each
+\strong{family-specific arguments} for \code{\link{cgdro_}()}, \code{\link{infer_cgdro_}()},
+and \code{\link{summary_cgdro_}()}, and by providing end-to-end \strong{examples} for each
 supported family. Use it as the single place to discover which extra arguments are
 recognized under different \code{family} settings and how to run complete workflows.
 }
@@ -26,8 +26,10 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 \code{reg_ml} \tab Machine learning prediction model        \tab no  \cr
 \code{cls}    \tab Linear model for classification tasks    \tab yes \cr
 }
+}
 
-#' @section Arguments by family:
+\section{Arguments by family}{
+
 \describe{
 
 \item{\strong{family = "reg_ld"}}{
@@ -158,7 +160,6 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 ## Example: High-dimensional Linear Regression (family = "reg_hd")
 \donttest{
   # two source groups, each with 100 samples, and 100 target samples
-  source(data/data.R)
   data <- simu_linear_reg_highd(n_list = c(100, 100), N = 100, p = 100, seed = 123)
   Xlist = data$X_list
   Ylist = data$Y_list
@@ -184,8 +185,7 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 \donttest{
   # number of source groups = 3, each with 1000 samples, and 10000 target samples
   # dimension p = 5
-  source(data/data.R)
-  data <- simu_reg_ml(n_vec = c(1000,1000,1000), n0=10000, p=5, seed = 123)
+  data <- simu_reg_ml(n_vec = c(1000,1000,1000), n0=10000, N_label=20, p=5, seed = 123)
   Xlist = data$X_list
   Ylist = data$Y_list
   X0 = data$X0
@@ -196,7 +196,8 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
                bias_correct = TRUE,
                priors = NULL,
                ridge = 1e-8,
-               seed = 123)
+               seed = 123,
+               verbose = FALSE)
   fit$weight_
 
   ## predict
@@ -232,7 +233,6 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 ## Example: Classification (family = "cls")
 \donttest{
   # two source groups, each with 100 samples, and 1000 target samples
-  source(data/data.R)
   n = 100; p = 5; L = 2; N = 1000; K = 2
   data <- simu_cls(n, N, p, L, K, seed=123)
   Xlist = data$X_list
@@ -240,9 +240,9 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
   X0 = data$X0
 
   ## fit cgdro
-  fit <- cgdro_(Xlist, ylist, X0,
+  fit <- cgdro_(Xlist, Ylist, X0,
                family = "cls", f_learner = "linear", w_learner = "linear")
-  inf <- infer_cgdro_(fit, M = 200, alpha = 0.05, parallel = TRUE, n_workers = 4, diag = TRUE)
+  inf <- infer_cgdro_(fit, M = 200, alpha = 0.05, parallel = FALSE, diag = TRUE)
 
   ## summary
   summary_cgdro_(fit, infer = inf)
@@ -256,7 +256,7 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 }
 }
 \seealso{
-\link{cgdro}, \link{predict}, \link{infer}, \link{summary}
+\link{cgdro_}, \link{predict_cgdro_}, \link{infer_cgdro_}, \link{summary_cgdro_}
 
 Other cgdro: 
 \code{\link{cgdro_}()},

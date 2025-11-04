@@ -8,7 +8,7 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
                      f_learner = "xgb", w_learner = "xgb",
                      bias_correct = TRUE, priors = NULL,
                      ridge = 1e-8, solver = c("ECOS", "SCS"),
-                     seed = 123) {
+                     seed = 123, verbose = FALSE) {
 
 
   X_list <- lapply(X_list, function(Xi) { Xi <- as.matrix(Xi)})
@@ -30,11 +30,12 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
                      f_learner, w_learner,
                      bias_correct, priors,
                      ridge, solver,
-                     seed)
+                     seed, verbose)
 
   set.seed(seed)
 
   # -------- Plug-in Γ (using full-source outcome models) --------
+  if (verbose) cat("Fitting source outcome models...\n")
   source_full_models <- vector("list", L)
   pred_full_mat <- matrix(0, N, L)
   dev_vec <- numeric(L)
@@ -82,6 +83,7 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
   }
 
   # -------- Bias-corrected Γ --------
+  if (verbose) cat("Computing bias-corrected Gamma...\n")
   Gamma_corr <- Gamma_plug
   for (k in seq_len(L)) {
     fkA <- source_A_models[[k]]
@@ -109,6 +111,7 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
 
 
   # -------- Solve for weights (robust, with DCPError message & fallback) --------
+  if (verbose) cat("Optimizing aggregation weights...\n")
   if (!requireNamespace("CVXR", quietly = TRUE)) {
     stop("Package 'CVXR' is required. Please install.packages('CVXR').")
   }

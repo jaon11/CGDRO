@@ -7,25 +7,25 @@
 predict_cgdro_(fit, X = NULL)
 }
 \arguments{
-\item{fit}{A fitted result object returned by \code{\link{cgdro}()}.}
+\item{fit}{A fitted result object returned by \code{\link{cgdro_}()}.}
 
 \item{X}{Optional numeric design matrix for the target domain. If \code{NULL},
 the matrix \code{fit$X0_use} defined during fitting will be used.}
-
-\item{...}{See \link{cgdro-family} for full documentation of these options.}
 }
 \value{
 A numeric vector of predicted outcomes, of length equal to \code{nrow(X)}.
+\item{pred}{Predicted labels on the target domain.}
+\item{pred_proba}{Predicted probabilities on the target domain. Only for \code{family = "cls"}.}
 }
 \description{
 Prediction on Target Domain using Aggregated Coefficients
 }
 \details{
-Applies the aggregated weights and coefficients returned by \code{\link{cgdro}()}
+Applies the aggregated weights and coefficients returned by \code{\link{cgdro_}()}
 to a target or user-specified design matrix, producing predicted values.
 }
 \seealso{
-\link{cgdro-family}, \link{cgdro}, \link{infer}
+\link{cgdro-family}, \link{cgdro_}, \link{infer_cgdro_}
 
 Other cgdro: 
 \code{\link{cgdro-family}},

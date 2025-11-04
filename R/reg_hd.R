@@ -56,7 +56,7 @@ fit_reg_hd <- function(X_list, y_list, index,
   check_arg_reg_hd(X_list, y_list, index, X0, intercept,
                      intercept_loading, delta, lambda, verbose)
 
-  if (verbose) cat( "start high-dimensional fitting-----\n")
+  if (verbose) cat("Fitting source outcome models...\n")
 
 
   # ---- HD: Lasso init + SIHR::LF debiasing ----
@@ -72,6 +72,7 @@ fit_reg_hd <- function(X_list, y_list, index,
     init_est[[l]] <- list(beta_init = b_init, dev = dev)
   }
 
+  if (verbose) cat("Computing plug-in Gamma...\n")
   Sigma0 <- crossprod(X0_use) / N
   Gamma_plugin <- matrix(0, L, L)
   for (l in seq_len(L)) {
@@ -83,6 +84,7 @@ fit_reg_hd <- function(X_list, y_list, index,
   }
   Gamma_plugin[lower.tri(Gamma_plugin)] <- t(Gamma_plugin)[lower.tri(Gamma_plugin)]
 
+  if (verbose) cat("Computing bias-correction Gamma...\n")
   correct_mat <- matrix(0, L, L)
   Proj_array <- array(0, dim = c(L, L, d))
   for (l in seq_len(L)) {
@@ -111,6 +113,7 @@ fit_reg_hd <- function(X_list, y_list, index,
   }
   Gamma_debias[lower.tri(Gamma_debias)] <- t(Gamma_debias)[lower.tri(Gamma_debias)]
 
+  if (verbose) cat("Optimizing aggregation weights...\n")
   w <- .opt_weight(Gamma_debias, delta = delta)
 
   # Debiased loadings per source on the *user-supplied* loading_mat
@@ -132,6 +135,8 @@ fit_reg_hd <- function(X_list, y_list, index,
       se.vec         = as.numeric(est_all$se.vec)
     )
   }
+  # Aggregate estimates
+  if (verbose) cat("Aggregating final estimates...\n")
   est_bc <- Reduce(`+`, Map(function(wl, pt) wl * pt$est.debias.vec, w, debias_est))
   beta_plug <- Reduce(`+`, Map(function(wl, pt) wl * pt$beta_init, w, init_est))
   est_plug <- beta_plug %*% loading_mat

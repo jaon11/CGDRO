@@ -7,12 +7,11 @@
 summary_cgdro_(fit, infer = NULL, ...)
 }
 \arguments{
-\item{fit}{A fitted result object returned by \code{\link{cgdro}()}.}
+\item{fit}{A fitted result object returned by \code{\link{cgdro_}()}.}
 
-\item{infer}{Optional list returned by \code{\link{infer}()} containing confidence intervals.}
+\item{infer}{Optional list returned by \code{\link{infer_cgdro_}()} containing confidence intervals.}
 
-\item{index}{Optional integer vector (1-based) selecting subsets of coefficient indices
-to display (default: all indices).}
+\item{...}{See \link{cgdro-family} for full documentation of these options.}
 }
 \value{
 Invisibly returns \code{NULL}. The function prints formatted tables to the console.
@@ -26,7 +25,7 @@ for a fitted CGDRO model. Provides users with a readable overview of the model o
 and key inference results.
 }
 \seealso{
-\link{cgdro-family}, \link{cgdro}, \link{infer}
+\link{cgdro-family}, \link{cgdro_}, \link{infer_cgdro_}
 
 Other cgdro: 
 \code{\link{cgdro-family}},
