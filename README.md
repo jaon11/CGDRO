@@ -1,1 +1,86 @@
-# CGDRO R Package
+README
+================
+
+# CGDRO
+
+CGDRO is an R package providing conprehensive multi-source prediction
+and model statistical inference without knowing target labels, offering
+multi-source solutions to low-dimensional and high-dimensional, linear
+and complex data, regression and classification problems.
+
+# Installation
+
+The development version from [GitHub](https://github.com) with:
+
+``` r
+# install.packages("devtools")
+devtools::install_github("jaon11/CGDRO")
+```
+
+# Example
+
+This is a basic example which shows you how to solve a common problem:
+
+``` r
+library(CGDRO)
+```
+
+The data is heterogeneous and covariates shift between source and target
+data
+
+``` r
+# number of source groups = 3, with 1000 samples each
+  # sigma: source group 1,3: 0.5; source group 2: 2
+  # target sample size = 10000
+  # dimension p = 5
+  data <- simu_linear_reg_lowd(n_list = list(1000,1000,1000), N=10000, p = 5, seed = 123)
+  Xlist = data$X_list
+  Ylist = data$Y_list
+  X0 = data$X0
+```
+
+Fitting CGDRO model for low-dimensional linear regression with reward
+loss and summarize results
+
+``` r
+  ## fit cgdro
+  ## Note: only when loss_type='reward', infer() can be called to get confidence intervals
+  ## For other loss_type, only point estimation and prediction can be done
+  fit <- cgdro_(Xlist, Ylist, X0, loss_type = "reward",
+               family = "reg_ld",  intercept = TRUE,
+               delta = 0,  verbose = FALSE)
+  inf <- infer_cgdro_(fit, M = 200, alpha = 0.05)
+  ## summary
+  summary_cgdro_(fit, infer=inf)
+```
+
+    ## Model Summary:
+    ## =================================
+    ## CGDRO Aggregated Weights:
+    ## 
+    ## group     |        1        2        3
+    ## weight_   |   0.5523   0.2813   0.1665
+    ## 
+    ## =================================
+    ## CGDRO Aggregated Estimators:
+    ## 
+    ## index     |        1        2        3        4        5        6
+    ## coef_     |   0.0232  -0.0653  -0.0449   0.0333  -0.0104   0.1307
+    ## 
+    ## =================================
+    ## Confidence Intervals:
+    ## 
+    ## index     |              1              2              3              4              5
+    ## CI        | (-0.0467,0.1067) (-0.2273,0.0549) (-0.1714,0.0781) (-0.1005,0.1320) (-0.1502,0.1224)
+    ## index     |              6
+    ## CI        | (0.0247,0.2149)
+
+Make prediction on target data
+
+``` r
+  ## predict
+  pred <- predict_cgdro_(fit)  # N x 1 vector of predicted values
+  head(pred)
+```
+
+    ## [1] -0.10216265 -0.23954467  0.05219648 -0.14650883 -0.02947897  0.01311665
