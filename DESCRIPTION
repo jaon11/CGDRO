@@ -17,7 +17,7 @@ Authors@R: c(
       email = "zijguo@zju.edu.cn",
       role = "aut")
   )
-Description: Implementation of CGDRO (Conditional Group Distributionally Robust Optimization) methods, providing prediction and valid statistical inference for multi-source learning problem with an unsupervised target domain. , 
+Description: Implementation of CGDRO (Conditional Group Distributionally Robust Optimization) methods, providing conprehensive multi-source prediction and model statistical inference without knowing target labels, offering multi-source solutions to low-dimensional and high-dimensional, linear and complex data, regression and classification problems. 
 License: GPL-3
 Encoding: UTF-8
 RoxygenNote: 7.3.3
