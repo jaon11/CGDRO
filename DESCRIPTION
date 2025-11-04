@@ -1,18 +1,44 @@
 Package: CGDRO
 Type: Package
-Title: What the Package Does (Title Case)
+Title: CGDRO R package
 Version: 0.1.0
 Authors@R: c(
     person(
-      "Jane", "Doe",
-      email = "jane@example.com",
+      "Ziang", "Fu",
+      email = "ziangfu@tamu.edu",
       role = c("aut", "cre")
-    )
+    ),
+    person(
+    "Zhenyu", "Wang",
+    email = "zw425@stat.rutgers.edu",
+    role = "aut"
+    ),
+    person("Zijian", "Guo",
+      email = "zijguo@zju.edu.cn",
+      role = "aut")
   )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
-License: What license is it under?
+Description: Implementation of CGDRO (Conditional Group Distributionally Robust Optimization) methods, providing prediction and valid statistical inference for multi-source learning problem with an unsupervised target domain. , 
+License: GPL-3
 Encoding: UTF-8
+RoxygenNote: 7.3.3
 LazyData: true
 URL: https://github.com/jaon11/CGDRO
 BugReports: https://github.com/jaon11/CGDRO/issues
+Imports:
+    glmnet,
+    xgboost,
+    CVXR,
+    densratio,
+    nnet,
+    MASS,
+    stats,
+    utils,
+    parallel,
+    SIHR
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    ggplot2
+VignetteBuilder: knitr
+Roxygen: list(markdown = TRUE)

@@ -4,48 +4,6 @@
 # =====================================================================
 # Fit (Closed-form Solution for DRoL)
 # =====================================================================
-#' @param X_list List of feature matrices from each source (each element is n_l × d)
-#' @param y_list List of outcome vectors from each source (each element is length n_l)
-#' @param X0 Target feature matrix (N × d). If NULL, uses all source data combined.
-#' @param f_learner Outcome model learner. Options: "linear", "xgb", "xgb.cv", "high_d". Default is "xgb".
-#' @param w_learner Density ratio model learner. Options: "linear", "xgb", "xgb.cv", "kliep". Default is "xgb".
-#' @param loss_type Loss type for weight optimization. Options: "reward", "squaredloss", "regret". Default is "reward".
-#' @param bias_correct Whether to use bias-corrected estimator for Γ. Default is TRUE.
-#' @param priors Optional list with two elements: prior weight vector (length L) and radius (nonnegative scalar). Default is NULL (no prior).
-#' @param ridge Ridge regularization parameter (nonnegative scalar) for numerical stability. Default is 1e-8.
-#' @param solver Solver for the quadratic program. Options: "ECOS", "SCS". Default is "ECOS".
-#' @param seed Random seed for reproducibility. Default is 123.
-#' @return A list containing:
-#' \item{f_learner}{Outcome model learner used.}
-#' \item{w_learner}{Density ratio model learner used.}
-#' \item{L}{Number of source datasets.}
-#' \item{d}{Number of features.}
-#' \item{X0}{Target feature matrix used.}
-#' \item{pred_full_mat}{N × L matrix of predictions from each source's full outcome model on X0.}
-#' \item{Gamma_plug}{Plug-in estimator of Γ (L × L matrix).}
-#' \item{Gamma_corr}{Bias-corrected estimator of Γ (L × L matrix).}
-#' \item{weight_}{Optimal weight vector (length L).}
-#' \item{family}{String "drol" indicating the method used.}
-#' @example
-#' set.seed(0)
-#' L <- 2; p <- 5
-#' mean_source <- rep(0, p); cov_source <- diag(p)
-#' n1 <- 2000; n2 <- 2000; n0 <- 20000
-#' X1 <- MASS::mvrnorm(n1, mean_source, cov_source)
-#' X2 <- MASS::mvrnorm(n2, mean_source, cov_source)
-#' b1 <- c(1,-1,0.5,0,0) + rnorm(p,0,0.1)
-#' b2 <- c(1,0.5,-0.5,0,0) + rnorm(p,0,0.1)
-#' Y1 <- (X1^3 %*% b1) + sin(X1 %*% b1) + pmin(pmax(exp(X1 %*% b1),0),1) + rnorm(n1)
-#' Y2 <- (X2^3 %*% b2) + sin(X2 %*% b2) + pmin(pmax(exp(X2 %*% b2),0),1) + rnorm(n2)
-#' X0 <- MASS::mvrnorm(n0, rep(0,p), cov_source)
-#' Xlist <- list(X1, X2); Ylist <- list(Y1, Y2)
-
-#' fit <- cgdro(Xlist, Ylist, X0,
-#'              family = "drol", f_learner = "linear", w_learner = "linear", bias_correct = TRUE, priors=NULL, seed = 123)
-#' res <- predict(fit)
-#' fit$weight_                                           # optimal weights
-#' head(res)
-#' @export
 fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squaredloss", "regret"),
                      f_learner = "xgb", w_learner = "xgb",
                      bias_correct = TRUE, priors = NULL,
@@ -221,7 +179,7 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
     rep(1 / L, L)
   })
 
-  # q_opt is guaranteed to be a valid simplex weight vector
+
 
   list(
     # meta
@@ -245,8 +203,6 @@ fit_reg_ml <- function(X_list, y_list, X0 = NULL, loss_type = c("reward", "squar
 # =====================================================================
 # Predict on target
 # =====================================================================
-#' @param fit A list returned by \code{fit_reg_ml}.
-#' @return A numeric vector of predicted values on the target feature matrix X0.
 predict_reg_ml <- function(fit, X=NULL) {
   if (is.null(X)) {
     pred_full_mat = fit$pred_full_mat

@@ -4,45 +4,6 @@
 # =====================================================================
 # Fit (Closed-form Solution)
 # =====================================================================
-#' @param X_list list of feature matrices from each source (each n_l x p)
-#' @param y_list list of outcome vectors from each source (each n_l x 1)
-#' @param index vector of feature indices for which to estimate the coefficients
-#' @param X0 target feature matrix (N x p); if NULL, use all source data
-#' @param intercept whether to include intercept in outcome models (default: FALSE)
-#' @param intercept_loading whether to include intercept in loading models (default: FALSE)
-#' @param delta regularization parameter in weight optimization (default: 0)
-#' @param lambda regularization parameter in high-dimensional outcome models;
-#' if "CV.min" or "CV.1se", use cross-validation to select (default: NULL)
-#' @param verbose whether to print fitting progress (default: FALSE)
-#' @return a list containing the following components:
-#' @importFrom SIHR LF
-#' @importFrom stats as.formula glm qnorm
-#' @importFrom Matrix Diagonal
-#' @importFrom glmnet glmnet cv.glmnet
-#' @importFrom CVXR Variable Problem Minimize solve
-#' @importFrom glmnet glmnet cv.glmnet
-#' @example
-#' set.seed(0)
-#' p <- 100; L <- 2
-#' A1gen <- function(rho, p) { i <- matrix(rep(1:p, each=p), p); j <- t(i); rho^abs(i - j) }
-#' cov_source <- A1gen(0.6, p)
-#' X1 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov_source)
-#' X2 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov_source)
-#' b1 <- rep(0,p); b1[1:5] <- (1:5)/20; b1[97:99] <- c(0.5, -0.5, -0.5)
-#' b2 <- rep(0,p); b2[6:10] <- (1:5)/20; b2[97:99] <- 0.5*c(0.5,-0.5,-0.5)
-#' Y1 <- as.numeric(X1 %*% b1 + rnorm(100))
-#' Y2 <- as.numeric(X2 %*% b2 + rnorm(100))
-#' cov0 <- cov_source; diag(cov0) <- 1.5; cov0[1:5,1:5] <- 0.9; diag(cov0[1:5,1:5]) <- 1.5; cov0[99:100,99:100] <- matrix(c(1.5,0.9,0.9,1.5),2)
-#' X0 <- MASS::mvrnorm(100, mu = rep(0,p), Sigma = cov0)
-#' loading_mat <- matrix(0, nrow = 100, ncol = 2); loading_mat[96:100,1] <- 0.4; loading_mat[99:100,2] <- 0.8 #; loading_mat <- t(loading_mat)
-#' fit <- cgdro(list(X1,X2), list(Y1,Y2), X0 = X0,
-#'           family = "drlm_reg", f_learner = "high_d", w_learner = "linear",
-#'           loading_mat = loading_mat, intercept = FALSE,
-#'           delta = 0, lambda = "CV.min", verbose = FALSE)
-#' inf <- infer(fit, M = 50)
-#' summary(fit, infer=inf)
-#' pred <- predict(fit)
-#' @export
 fit_reg_hd <- function(X_list, y_list, index,
                          X0 = NULL,
                          intercept = FALSE,
@@ -197,9 +158,6 @@ fit_reg_hd <- function(X_list, y_list, index,
 # =====================================================================
 # Predict on target
 # =====================================================================
-#' @param fit a fitted model returned by fitting
-#' @return a numeric vector of predicted outcomes on target (length N)
-
 predict_reg_hd <- function(fit, X=NULL) {
   if (is.null(X)) {
     X <- fit$X0_use
@@ -216,15 +174,6 @@ predict_reg_hd <- function(fit, X=NULL) {
 # =====================================================================
 # Inference
 # =====================================================================
-#' @param fit a fitted model returned by fitting
-#' @param M number of Monte Carlo samples (default: 500)
-#' @param alpha significance level (default: 0.05)
-#' @param tau variance inflation parameter (default: 0.2)
-#' @param alpha_thres threshold for small eigenvalues (default: 0.01)
-#' @param threshold threshold for eigenvalue truncation (default: 0)
-#' @return a list containing the following components:
-#' \item{CI}{an n_loading x 2 matrix of confidence intervals for each loading}
-
 infer_reg_hd <- function(fit, M = 500, alpha = 0.05,
                            tau = 0.2, alpha_thres = 0.01, threshold = 0) {
   # check arguments
@@ -281,7 +230,6 @@ infer_reg_hd <- function(fit, M = 500, alpha = 0.05,
 # =====================================================================
 # Summary
 # =====================================================================
-
 summary_reg_hd <- function(fit, infer = NULL, index = NULL) {
   width <- 8; per_row_coef <- 10; per_row_ci <- 5; digits_coef <- 4; digits_ci <- 4
 

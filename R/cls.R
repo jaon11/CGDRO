@@ -1,48 +1,9 @@
 ######################################################################
 ######################### DRlm-Classification ########################
 ######################################################################
-source("R/Utility.R")
 # =====================================================================
 # Fit (Optimistic Gradient Mirror Prox)
 # =====================================================================
-#' @param X_list list of feature matrices (each n_i x d) for each source group
-#' @param y_list list of label vectors (each n_i x 1) for each source group
-#' @param X0 feature matrix (n_0 x d) for the target group; if NULL, use all source data
-#' @param f_learner outcome model learner; one of "linear", "xgb", "xgb.cv", "high_d" (default: "xgb")
-#' @param w_learner density ratio model learner; one of "linear", "xgb", "xgb.cv","kliep" (default: "linear")
-#' @param split whether to use sample-splitting in outcome/density estimation (default: TRUE)
-#' @param max_iter maximum number of iterations (default: 1000)
-#' @param tol tolerance for convergence (default: 1e-6)
-#' @param check_dual whether to compute duality gap every 50 iterations (default: FALSE)
-#' @param verbose whether to print log messages (default: FALSE)
-#' @param seed random seed for sample-splitting (default: 123)
-#' @return a list containing the fitted model parameters and other information
-#' @importFrom MASS mvrnorm
-#' @importFrom stats as.formula glm model.matrix qnorm rbinom rmultinom
-#' @importFrom xgboost xgb.DMatrix xgb.cv xgb.train predict
-#' @importFrom glmnet cv.glmnet glmnet
-#' @importFrom KLIEP kliep
-#' @importFrom nnet multinom
-#' @importFrom Matrix sparse.model.matrix
-#' @importFrom parallel mclapply
-#' @importFrom utils capture.output
-#' @examples
-#' set.seed(1234)
-#' L <- 3; n <- 200; p <- 10; N <- 2000; K <- 2; C <- K + 1
-#' X_list <- replicate(L, matrix(rnorm(n * p, 0, 1), n, p), simplify = FALSE)
-#' X0 <- matrix(rnorm(N * p, 0.1, 1), N, p)
-#' beta_list <- replicate(L, matrix(rnorm(p * K, 0, 0.25), p, K), simplify = FALSE)
-#' logits_list <- Map(function(X, B) sweep(X %*% B, 2, colMeans(X %*% B), "-"), X_list, beta_list)
-#' probsK_list <- lapply(logits_list, .softmax_reduced)
-#' probs_list <- lapply(probsK_list, function(PK) cbind(1 - rowSums(PK), PK))
-#' y_list <- lapply(probs_list, function(Pr) apply(Pr, 1, function(pr) which.max(rmultinom(1, 1, pr)) - 1))
-
-#' fit <- cgdro(X_list, y_list, X0,
-#'             family = "drlm_cls", f_learner = "xgb", w_learner = "kliep")
-#' inf <- infer(fit, M = 50, alpha = 0.05, parallel = FALSE, n_workers = 2, diag = TRUE)
-#' summary(fit, infer=inf, index = c(1,3,5), class_index = c(2))
-#' predict(fit)
-#' @export
 fit_cls <- function(X_list, y_list, X0 = NULL,
                          f_learner = "xgb", w_learner = "linear",
                          split = TRUE, max_iter = 1000, tol = 1e-6, check_dual = FALSE,
@@ -161,8 +122,6 @@ fit_cls <- function(X_list, y_list, X0 = NULL,
 # =====================================================================
 # Predict on target
 # =====================================================================
-#' @param fit a fitted model returned by fit_cls
-#' @return a list containing predicted probabilities and predicted labels
 predict_cls <- function(fit, X=NULL) {
   if (is.null(X)) {
     X <- fit$X0
@@ -186,11 +145,6 @@ predict_cls <- function(fit, X=NULL) {
 # =====================================================================
 # Inference
 # =====================================================================
-#' @param fit a fitted model returned by fit_cls
-#' @param M number of resamples (default: 200)
-#' @param alpha significance level for (1-alpha) confidence intervals (default: 0.05)
-#' @param c
-#' @return a list containing M resampled estimates and confidence intervals
 infer_cls <- function(fit, M = 200, alpha = 0.05,
                            parallel = FALSE, n_workers = 4, diag = TRUE) {
   # check arguments
@@ -229,12 +183,6 @@ infer_cls <- function(fit, M = 200, alpha = 0.05,
   CI_Union_list <- lapply(seq_len(K), function(k) CI_Union[, , k])
 
   list(
-    theta_M = lapply(res, `[[`, "theta"),
-    gamma_M = lapply(res, `[[`, "gamma"),
-    CI_lb_M = lapply(res, `[[`, "lb"),
-    CI_ub_M = lapply(res, `[[`, "ub"),
-    CI_lb_U = CI_lb_U,
-    CI_ub_U = CI_ub_U,
     CI = CI_Union_list
   )
 }
@@ -242,13 +190,11 @@ infer_cls <- function(fit, M = 200, alpha = 0.05,
 # =====================================================================
 # Summary
 # =====================================================================
-
-
 summary_cls <- function(fit, infer = NULL, index = NULL, class_index = NULL) {
   width = 8; per_row_coef = 10; per_row_ci = 5; digits_coef = 4; digits_ci = 3
   # ---- basic checks ----
   if (is.null(fit$coef_) || is.null(fit$weight_)) {
-    cat("Model is not fitted yet. Run cgdro() first.\n")
+    cat("Model is not fitted yet. Run cgdro_() first.\n")
     return(invisible(NULL))
   }
   d <- fit$d; K <- fit$K; num_class <- fit$num_class
