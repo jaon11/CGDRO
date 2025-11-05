@@ -3,7 +3,7 @@ README
 
 # CGDRO
 
-CGDRO is an R package providing conprehensive multi-source prediction
+CGDRO is an R package providing comprehensive multi-source prediction
 and model statistical inference without knowing target labels, offering
 multi-source solutions to low-dimensional and high-dimensional, linear
 and complex data, regression and classification problems.
