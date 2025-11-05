@@ -1,6 +1,3 @@
-README
-================
-
 # CGDRO
 
 CGDRO is an R package providing comprehensive multi-source prediction
