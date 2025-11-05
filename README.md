@@ -93,3 +93,21 @@ Make prediction on target data
 ```
 
     ## [1] -0.10216265 -0.23954467  0.05219648 -0.14650883 -0.02947897  0.01311665
+    
+
+
+# References
+
+<span id="ref-guo2024statistical"></span>
+**Guo, Z.** (2024). *Statistical inference for maximin effects: Identifying stable associations across multiple studies.*  
+*Journal of the American Statistical Association*, 119(547), 1968–1984.  
+[Paper link](https://doi.org/10.1080/01621459.2023.2258469)
+
+<span id="ref-wang2023distributionally"></span>
+**Wang, Z.**, **Bühlmann, P.**, & **Guo, Z.** (2023). *Distributionally robust machine learning with multi-source data.*  
+*arXiv preprint* [arXiv:2309.02211](https://arxiv.org/abs/2309.02211)
+
+<span id="ref-guo2025statistical"></span>
+**Guo, Z.**, **Wang, Z.**, **Hu, Y.**, & **Bach, F.** (2025). *Statistical Inference for Conditional Group Distributionally Robust Optimization with Cross-Entropy Loss.*  
+*arXiv preprint* [arXiv:2507.09905](https://arxiv.org/abs/2507.09905)
+
