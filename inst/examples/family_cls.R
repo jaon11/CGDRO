@@ -9,7 +9,7 @@
 
   ## fit cgdro
   fit <- cgdro_(Xlist, Ylist, X0,
-               family = "cls", f_learner = "linear", w_learner = "linear")
+               family = "cls", f_learner = "linear", w_learner = "logistic")
   inf <- infer_cgdro_(fit, M = 200, alpha = 0.05, parallel = FALSE, diag = TRUE)
 
   ## summary

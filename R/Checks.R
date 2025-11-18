@@ -12,7 +12,7 @@ check_arg_cls_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, f_learner
     if(!is.numeric(X0)|| ncol(X0)!=d) stop("X0 must be a numeric matrix with the same dimension as source covariates.")
   }
   if(is.null(f_learner) || !(f_learner %in% c("linear", "xgb", "xgb.cv"))) stop("f_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","ulsif"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','ulsif'")
+  if(is.null(w_learner) || !(w_learner %in% c("logistic", "xgb", "xgb.cv","ulsif"))) stop("w_learner must be one of 'logistic', 'xgb', 'xgb.cv','ulsif'")
   if(is.null(split) || !is.logical(split)) stop("split must be TRUE or FALSE")
   if(is.null(max_iter) || !is.numeric(max_iter) || length(max_iter)!=1 || max_iter<=0 || max_iter!=round(max_iter)) stop("max_iter must be a positive integer")
   if(is.null(tol) || !is.numeric(tol) || length(tol)!=1 || tol<=0) stop("tol must be a positive numeric value")
@@ -118,7 +118,7 @@ check_arg_reg_ml_fit <- function(X_list = NULL, y_list = NULL, X0 = NULL, loss_t
   }
   if(is.null(loss_type) || !(loss_type %in% c("reward", "squaredloss", "regret"))) stop("loss_type must be one of 'reward', 'squaredloss', 'regret'")
   if(is.null(f_learner) || !(f_learner %in% c("linear", "xgb", "xgb.cv"))) stop("f_learner must be one of 'linear', 'xgb', 'xgb.cv'")
-  if(is.null(w_learner) || !(w_learner %in% c("linear", "xgb", "xgb.cv","ulsif"))) stop("w_learner must be one of 'linear', 'xgb', 'xgb.cv','ulsif'")
+  if(is.null(w_learner) || !(w_learner %in% c("logistic", "xgb", "xgb.cv","ulsif"))) stop("w_learner must be one of 'logistic', 'xgb', 'xgb.cv','ulsif'")
   if(is.null(bias_correct) || !is.logical(bias_correct)) stop("bias_correct must be TRUE or FALSE")
   if(!is.null(priors)){
     if(!is.list(priors) || length(priors)!=2) stop("priors must be a list of length 2")

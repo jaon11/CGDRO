@@ -132,7 +132,7 @@ NULL
 #' @param index Optional integer; index of the loading vector (1-based) for families that focus on a specific coordinate (only used when \code{family = "reg_hd"}).
 #' @param family Character; the CGDRO family to solve. One of \code{"reg_ld"}, \code{"reg_hd"}, \code{"reg_ml"}, or \code{"cls"}.
 #' @param f_learner Character; outcome-model learner. Options include \code{"linear"}, \code{"xgb"}, \code{"xgb.cv"}, \code{"high_d"}. Default is \code{"xgb"}. Not required for \code{family = "reg_ld"} or \code{"reg_hd"}.
-#' @param w_learner Character; density-ratio or weight-model learner. Options include \code{"linear"}, \code{"xgb"}, \code{"xgb.cv"}, \code{"kliep"}. Default is \code{"linear"}. Not required for \code{family = "reg_ld"} or \code{"reg_hd"}.
+#' @param w_learner Character; density-ratio or weight-model learner. Options include \code{"logistic"}, \code{"xgb"}, \code{"xgb.cv"}, \code{"kliep"}. Default is \code{"logistic"}. Not required for \code{family = "reg_ld"} or \code{"reg_hd"}.
 #' @param loss_type Character; loss type for weight optimization. Options: \code{"reward"}, \code{"squaredloss"}, \code{"regret"}. Default is \code{"reward"}. Only needed for \code{family = "reg_ld"} or \code{"reg_ml"}.
 #' @param verbose Logical; whether to print fitting progress (default: \code{FALSE}).
 #' @param ... See \link{cgdro-family} for full documentation of these options.
@@ -166,7 +166,7 @@ cgdro_ <- function(
     index = NULL,
     family   = c("reg_ld", "reg_hd", "reg_ml", "cls"),
     f_learner = c("linear", "xgb", "xgb.cv", "high_d"),
-    w_learner = c("linear", "xgb", "xgb.cv", "ulsif"),
+    w_learner = c("logistic", "xgb", "xgb.cv", "ulsif"),
     loss_type = NULL,   # only used for reg_ld and reg_ml
     verbose = FALSE,
     ...

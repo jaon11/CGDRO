@@ -11,7 +11,7 @@ cgdro_(
   index = NULL,
   family = c("reg_ld", "reg_hd", "reg_ml", "cls"),
   f_learner = c("linear", "xgb", "xgb.cv", "high_d"),
-  w_learner = c("linear", "xgb", "xgb.cv", "ulsif"),
+  w_learner = c("logistic", "xgb", "xgb.cv", "ulsif"),
   loss_type = NULL,
   verbose = FALSE,
   ...
@@ -30,7 +30,7 @@ cgdro_(
 
 \item{f_learner}{Character; outcome-model learner. Options include \code{"linear"}, \code{"xgb"}, \code{"xgb.cv"}, \code{"high_d"}. Default is \code{"xgb"}. Not required for \code{family = "reg_ld"} or \code{"reg_hd"}.}
 
-\item{w_learner}{Character; density-ratio or weight-model learner. Options include \code{"linear"}, \code{"xgb"}, \code{"xgb.cv"}, \code{"kliep"}. Default is \code{"linear"}. Not required for \code{family = "reg_ld"} or \code{"reg_hd"}.}
+\item{w_learner}{Character; density-ratio or weight-model learner. Options include \code{"logistic"}, \code{"xgb"}, \code{"xgb.cv"}, \code{"kliep"}. Default is \code{"logistic"}. Not required for \code{family = "reg_ld"} or \code{"reg_hd"}.}
 
 \item{loss_type}{Character; loss type for weight optimization. Options: \code{"reward"}, \code{"squaredloss"}, \code{"regret"}. Default is \code{"reward"}. Only needed for \code{family = "reg_ld"} or \code{"reg_ml"}.}
 

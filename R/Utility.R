@@ -368,7 +368,7 @@ train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
 # =====================================================================
 # 2) Density-ratio learner  w(x) = p0(x)/p(x)
 # =====================================================================
-.learn_w <- function(learner = c("linear", "xgb", "xgb.cv", "ulsif"),
+.learn_w <- function(learner = c("logistic", "xgb", "xgb.cv", "ulsif"),
                      params = NULL,
                      seed = 123) {
   learner <- match.arg(learner)
@@ -441,9 +441,9 @@ train.fun <- function(X, y, lambda=NULL, intercept=FALSE){
     Xc <- rbind(X, X0)
     yc <- c(rep(0, nrow(X)), rep(1, nrow(X0)))
 
-    if (learner == "linear") {
+    if (learner == "logistic") {
       if (!requireNamespace("glmnet", quietly = TRUE))
-        stop("Need package 'glmnet' for learn_w(learner='linear').")
+        stop("Need package 'glmnet' for learn_w(learner='logistic').")
       cvfit <- glmnet::cv.glmnet(Xc, yc, family = "binomial", type.measure = "deviance")
       model <<- cvfit
       params_used <<- list(lambda = "lambda.min")

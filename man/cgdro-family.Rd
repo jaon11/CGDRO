@@ -192,7 +192,7 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 
   ## fit cgdro
   fit <- cgdro_(Xlist, Ylist, X0, loss_type = "reward",
-               family = "reg_ml", f_learner = "xgb", w_learner = "linear",
+               family = "reg_ml", f_learner = "xgb", w_learner = "logistic",
                bias_correct = TRUE,
                priors = NULL,
                ridge = 1e-8,
@@ -206,7 +206,7 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 
   ## fit cgdro
   fit <- cgdro_(Xlist, Ylist, X0, loss_type = "squaredloss",
-               family = "reg_ml", f_learner = "xgb", w_learner = "linear",
+               family = "reg_ml", f_learner = "xgb", w_learner = "logistic",
                bias_correct = TRUE,
                priors = NULL,
                ridge = 1e-8,
@@ -219,7 +219,7 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 
   ## fit cgdro
   fit <- cgdro_(Xlist, Ylist, X0, loss_type = "regret",
-               family = "reg_ml", f_learner = "xgb", w_learner = "linear",
+               family = "reg_ml", f_learner = "xgb", w_learner = "logistic",
                bias_correct = TRUE,
                priors = NULL,
                ridge = 1e-8,
@@ -241,7 +241,7 @@ family <- c("reg_ld", "reg_hd", "reg_ml", "cls")
 
   ## fit cgdro
   fit <- cgdro_(Xlist, Ylist, X0,
-               family = "cls", f_learner = "linear", w_learner = "linear")
+               family = "cls", f_learner = "linear", w_learner = "logistic")
   inf <- infer_cgdro_(fit, M = 200, alpha = 0.05, parallel = FALSE, diag = TRUE)
 
   ## summary

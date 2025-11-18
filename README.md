@@ -1,6 +1,7 @@
+
 # CGDRO
 
-CGDRO is an R package providing comprehensive multi-source prediction
+CGDRO is an R package providing conprehensive multi-source prediction
 and model statistical inference without knowing target labels, offering
 multi-source solutions to low-dimensional and high-dimensional, linear
 and complex data, regression and classification problems.
@@ -46,7 +47,8 @@ data
 ```
 
 Fitting CGDRO model for low-dimensional linear regression with reward
-loss and summarize results
+loss and summarize results, more loss types can be selected from `squredloss` and `regret`, showing in tutorial of [family='reg_ld'](reg_ld.ipynb).
+
 
 ``` r
   ## fit cgdro
@@ -81,7 +83,10 @@ loss and summarize results
     ## index     |              6
     ## CI        | (0.0247,0.2149)
 
-Make prediction on target data
+We can get statistical inference results from CGDRO, including **CGDRO Aggregated Weights** (learned weights from each group of source domain), **Coefficient Estimators** (the worst-case estimators of coefficient on target domain), and **Confidence Intervals** (valid confidence intervals of target domain coefficient estimators). In the summarized results above, `group` refers to each group of source domains, `index` refers to the index of coeffients, starting from the intercept if `intercept=TRUE`, else starting from the first dimension of coefficient.
+
+Make prediction on target data (you do not have to state the coveriate you use for prediction since target data is the default choice) and show the first 6 predicted values.
+
 
 ``` r
   ## predict
@@ -90,8 +95,6 @@ Make prediction on target data
 ```
 
     ## [1] -0.10216265 -0.23954467  0.05219648 -0.14650883 -0.02947897  0.01311665
-    
-
 
 # References
 

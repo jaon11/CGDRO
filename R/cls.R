@@ -5,7 +5,7 @@
 # Fit (Optimistic Gradient Mirror Prox)
 # =====================================================================
 fit_cls <- function(X_list, y_list, X0 = NULL,
-                         f_learner = "xgb", w_learner = "linear",
+                         f_learner = "xgb", w_learner = "logistic",
                          split = TRUE, max_iter = 1000, tol = 1e-6, check_dual = FALSE,
                          verbose = FALSE, seed = 123) {
   set.seed(seed)
